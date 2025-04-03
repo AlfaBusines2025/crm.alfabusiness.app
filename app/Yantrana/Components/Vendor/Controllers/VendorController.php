@@ -19,6 +19,8 @@ use App\Yantrana\Components\Dashboard\DashboardEngine;
 use App\Yantrana\Components\Vendor\Models\VendorModel;
 use Carbon\Carbon;
 use App\Models\User;
+use App\Yantrana\Components\Vendor\Models\VendorSettingsModel;
+
 
 
 
@@ -348,70 +350,79 @@ class VendorController extends BaseController
 
 
 
-
-
-
-
-
-  public function privacyPolicy($vendorUID)
-  {
-    // Buscar el vendor por _uid
+public function privacyPolicy($vendorUID)
+{
+    // Buscar el vendor por _uid en la tabla vendor
     $vendor = VendorModel::where('_uid', $vendorUID)->first();
     if (!$vendor) {
-      abort(404, 'Elemento no existe');
+        abort(404, 'Elemento no existe');
     }
 
-    // Relacionar con el usuario: se asume que vendors__id en users es igual a vendor->_id
-    $user = User::where('vendors__id', $vendor->_id)->first();
+    // Obtener todos los settings del vendor (varias filas)
+    $settingsCollection = VendorSettingsModel::where('vendors__id', $vendor->_id)->get();
 
+    // Construir el arreglo asociativo: cada clave es el valor de 'name' y cada valor es 'value'
+    $settings = [];
+    foreach ($settingsCollection as $setting) {
+        $settings[$setting->name] = $setting->value;
+    }
+
+    // Construir el arreglo de datos usando los registros obtenidos y placeholders coherentes
     $data = [
-      'vendor_title'         => $vendor->title ?? '{Vendor Title}',
-      'business_information' => $vendor->business_information ?? '{Business Information}',
-      'address_and_contact'  => $vendor->address_and_contact ?? '{Address & Contact}',
-      'address_line'         => $vendor->address_line ?? '{Address line}',
-      'postal_code'          => $vendor->postal_code ?? '{Postal Code}',
-      // Se fijan los valores de ubicación con iconos (puedes usar flag-icon-css o emojis)
-      'city'                 => 'Quito',
-      'state'                => 'Pichincha',
-      'select_country'       => 'Ecuador',
-      'business_phone'       => $user && $user->mobile_number ? $user->mobile_number : '{Business Phone}',
-      'contact_email'        => $user && $user->email ? $user->email : '{Contact Email}',
-      'other'                => $vendor->other ?? '{Other}',
-      'updated_at'           => Carbon::parse($vendor->updated_at)->format('d/m/Y'),
+        'vendor_title'         => $settings['Vendor Title'] ?? '[Nombre de la Empresa]',
+        'business_information' => $settings['Business Information'] ?? 'En [Nombre de la Empresa], nos comprometemos a proteger la privacidad y la seguridad de los datos personales, garantizando el ejercicio del derecho a la protección de datos.',
+        'address_and_contact'  => $settings['addresscontac'] ?? 'Datos de contacto no disponibles',
+        'address_line'         => $settings['address'] ?? 'Dirección no especificada',
+        'postal_code'          => $settings['postal_code'] ?? 'Código postal no definido',
+        'city'                 => $settings['city'] ?? 'Ciudad no especificada',
+        'state'                => $settings['state'] ?? 'Estado/Provincia no definido',
+        'select_country'       => $settings['country'] ?? 'País no especificado',
+        'business_phone'       => $settings['contact_phone'] ?? 'Teléfono de contacto no disponible',
+        'contact_email'        => $settings['contact_email'] ?? 'Correo electrónico no disponible',
+        'other'                => $settings['Other'] ?? 'Otros términos aplicables se regirán conforme a nuestra política interna.',
+        'updated_at'           => Carbon::parse($vendor->updated_at)->format('d/m/Y'),
     ];
 
     return view('privacy', compact('data'));
-  }
+}
 
-
-  public function termsAndConditions($vendorUID)
-  {
-    // Buscar el vendor por _uid
+public function termsAndConditions($vendorUID)
+{
+    // Buscar el vendor por _uid en la tabla vendor
     $vendor = VendorModel::where('_uid', $vendorUID)->first();
-
     if (!$vendor) {
-      abort(404, 'Elemento no existe');
+        abort(404, 'Elemento no existe');
     }
 
-    // Relacionar con el usuario: se asume que vendors__id en users es igual a vendor->_id
-    $user = User::where('vendors__id', $vendor->_id)->first();
+    // Obtener todos los settings del vendor (varias filas)
+    $settingsCollection = VendorSettingsModel::where('vendors__id', $vendor->_id)->get();
 
+    // Construir el arreglo asociativo: cada clave es el valor de 'name' y cada valor es 'value'
+    $settings = [];
+    foreach ($settingsCollection as $setting) {
+        $settings[$setting->name] = $setting->value;
+    }
+
+    // Construir el arreglo de datos usando los registros obtenidos y placeholders coherentes
     $data = [
-      'vendor_title'         => $vendor->title ?? '{Vendor Title}',
-      'business_information' => $vendor->business_information ?? '{Business Information}',
-      'address_and_contact'  => $vendor->address_and_contact ?? '{Address & Contact}',
-      'address_line'         => $vendor->address_line ?? '{Address line}',
-      'postal_code'          => $vendor->postal_code ?? '{Postal Code}',
-      // Se fijan los valores de ubicación con iconos (puedes usar flag-icon-css o emojis)
-      'city'                 => 'Quito',
-      'state'                => 'Pichincha',
-      'select_country'       => 'Ecuador',
-      'business_phone'       => $user && $user->mobile_number ? $user->mobile_number : '{Business Phone}',
-      'contact_email'        => $user && $user->email ? $user->email : '{Contact Email}',
-      'other'                => $vendor->other ?? '{Other}',
-      'updated_at'           => Carbon::parse($vendor->updated_at)->format('d/m/Y'),
+        'vendor_title'         => $settings['Vendor Title'] ?? '[Nombre de la Empresa]',
+        'business_information' => $settings['Business Information'] ?? 'En [Nombre de la Empresa], nos comprometemos a proteger la privacidad y seguridad de la información, cumpliendo con la normativa vigente en protección de datos.',
+        'address_and_contact'  => $settings['addresscontac'] ?? 'Datos de contacto no disponibles',
+        'address_line'         => $settings['address'] ?? 'Dirección no especificada',
+        'postal_code'          => $settings['postal_code'] ?? 'Código postal no definido',
+        'city'                 => $settings['city'] ?? 'Ciudad no especificada',
+        'state'                => $settings['state'] ?? 'Estado/Provincia no definido',
+        'select_country'       => $settings['country'] ?? 'País no especificado',
+        'business_phone'       => $settings['contact_phone'] ?? 'Teléfono de contacto no disponible',
+        'contact_email'        => $settings['contact_email'] ?? 'Correo electrónico no disponible',
+        'other'                => $settings['Other'] ?? 'Otros términos y condiciones se regirán conforme a lo establecido por [Nombre de la Empresa].',
+        'updated_at'           => Carbon::parse($vendor->updated_at)->format('d/m/Y'),
     ];
 
     return view('termsyconditions', compact('data'));
-  }
+}
+
+	
+	
+	
 }

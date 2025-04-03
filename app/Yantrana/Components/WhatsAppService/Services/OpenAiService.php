@@ -526,6 +526,8 @@ class OpenAiService extends BaseEngine
      */
     public function generateAnswerFromMultipleSections($question, $contactUid, $vendorId)
     {
+		
+		
         $botName = getVendorSettings('open_ai_bot_name', null, null, $vendorId);
         $botDataSourceType = getVendorSettings('open_ai_bot_data_source_type', null, null, $vendorId);
 
@@ -604,6 +606,8 @@ class OpenAiService extends BaseEngine
 
         // 3. Info contacto
         $contactContext = $this->getContactData($contactUid);
+		
+		//\Log::debug("Contact Context" . json_encode($contactContext));
 
         // 4. Detectar URLs (incluyendo audios)
         $promptUrlItems = $this->buildPromptItemsForUrls($question);
@@ -653,6 +657,23 @@ class OpenAiService extends BaseEngine
 				$saludo = "NUNCA SALUDES, a menos que en la Pregunta te salude";
 			}
 		}
+		
+		$vendor = VendorModel::where([
+            '_id' => $vendorId
+        ])->first();
+		
+		$vendorUid = $vendor->_uid;
+		
+		//4.1 Traer datos de Términos y Condiciones y Políticas de Privacidad
+		$terms_and_conditions_vendor = "https://crm.alfabusiness.app/legal/terms-and-conditions/".$vendor->_uid;
+		//$privacy_policy_vendor = "https://crm.alfabusiness.app/legal/privacy-policy/".getVendorUid();
+		
+		
+		//4.2.- cambiar combinacion de secciones por todo el prompt de data
+		$openAITariningData = getVendorSettings('open_ai_embedded_training_data', null, null, $vendorId);
+        $openAIDataPrompt = json_encode($openAITariningData['data']);
+		
+		//$combinedSections = $openAIDataPrompt;
 
         // 5. Texto principal
         $mainText = "Basándote en la siguiente información del usuario y el contenido adicional, "
@@ -661,9 +682,10 @@ class OpenAiService extends BaseEngine
                   . "Información de contacto: $contactContext\n\n"
 				  . "Mensajes anteriores del contacto: $mensajes_anteriores_contacto\n\n"
 				  . "IMPORTANTE: Procura no repetir información que haz mencionado anteriormente en los mensajes anteriores ya que el usuario ya sabe\n\n"
-                  . "Contenido (varias secciones + APIs): $combinedSections\n\n"
+                  . "Contenido (varias secciones + APIs): $openAIDataPrompt\n\n"
                   . "Este es el Prompt URL Items: ".json_encode($promptUrlItems)."\n\n"
 				  . "La Hora y fecha actual es: {$hora_actual} y el día es: {$dia_hoy}"."\n\n"
+				  . "Si te preguntan por los términos y condiciones o políticas de Privacidad di que en este URL van a poder encontrar toda la información: {$terms_and_conditions_vendor}"."\n\n"
 				  . "ABSOLUTAMENTE IMPORTANTE: En tu respuesta, NO UTILICES paréntesis, asteriscos ni corchetes al incluir enlaces. "
                   . "Asegúrate de que los enlaces se presenten separados por espacios para evitar que se corten o alteren.\n\n"
                   . "Pregunta: $question";
@@ -691,11 +713,7 @@ class OpenAiService extends BaseEngine
 		$domain_variable_vendor = parse_url($vendor_webhook_endpoint, PHP_URL_HOST);
 		//vendorUid
 		
-		$vendor = VendorModel::where([
-            '_id' => $vendorId
-        ])->first();
 		
-		$vendorUid = $vendor->_uid;
 		
 		$vendorAccessToken = getVendorSettings('vendor_api_access_token', null, null, $vendorUid);
 		
@@ -723,12 +741,16 @@ class OpenAiService extends BaseEngine
             // Agrega más parámetros según sea necesario
 			'wa_id_contact'=> $wa_id_contact,
         ];
+		
+		
 
         // Convertir los parámetros a JSON
         $jsonParams = json_encode($customApiParams);
 
         // 8. Llamar a la función personalizada de CustomApisService
         $customApiResponse = $this->customApisService->processVendorApi($jsonParams);
+		
+		
 
         // Obtener los datos de la respuesta personalizada
         $customApiData = json_decode($customApiResponse->getContent(), true);
@@ -764,7 +786,7 @@ class OpenAiService extends BaseEngine
         }
 		
 		
-
+		
 		
 
         // 7. Petición a Chat de OpenAI

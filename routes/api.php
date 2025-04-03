@@ -133,3 +133,7 @@ Route::group([
 });
 
 //agregados para ver usuario
+
+
+Route::get('/legal', [VendorSettingsController::class, 'getLegalContent']);
+

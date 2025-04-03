@@ -16,6 +16,8 @@ use App\Yantrana\Components\Contact\Models\ContactModel;
 use App\Yantrana\Services\PushBroadcast\PusherBeamsService; // Importar el servicio PusherBeamsService
 //Open AI
 use OpenAI\Laravel\Facades\OpenAI;
+use Illuminate\Support\Facades\Log;
+
 
 
 class CustomApisService
@@ -115,263 +117,333 @@ class CustomApisService
 	 * @param array $params Parámetros decodificados del JSON.
 	 * @return JsonResponse Respuesta consolidada.
 	 */
-	private function handleVendorWebhookGenerator($params)
-	{
-		// 1. Validación mínima de parámetros
-		$question                     = $params['question'] ?? null;
-		$contactUid                   = $params['contact_uid'] ?? null;
-		$mensajes_anteriores_contacto = $params['mensajes_anteriores_contacto'] ?? null;
-		$apiKey                       = $params['open_ai_access_key'] ?? null;
-		$idOrg                        = $params['open_ai_organization'] ?? null;
-		$mensaje_cliente              = $question;
-		$topSections                  = $params['top_sections'] ?? [];
-		$combinedSections             = $params['combined_sections'] ?? '';
-		$api_data_ai                  = $params['api_data_ai'] ?? [];
-		$contactContext               = $params['contact_context'] ?? '';
-		$prompt_url_items             = $params['prompt_url_items'] ?? [];
-		$prompt_final                 = $params['prompt_final'] ?? [];
-
-		$contact = ContactModel::where('_uid', $contactUid)->first();
-
-		if (!$question || !$contactUid) {
-			\Log::error("handleVendorWebhookGenerator - Falta alguno de los parámetros requeridos", [
-				'question'   => $question,
-				'contactUid' => $contactUid
-			]);
-			return response()->json([
-				'error'   => true,
-				'message' => 'Faltan parámetros "question" o "contact_uid".'
-			], 400);
-		}
-
-		// 2. Construir endpoints dinámicos
-		// Se espera recibir: domain_variable_vendor, vendor_access_token, vendor_uid
-		$general_endpoint = "https://" . $params['domain_variable_vendor'] . "/wp-json/alfabusiness/api/v1/";
-		$general_parameters_endpoint = "?token=" . $params['vendor_access_token'] . "&uid_vendor=" . $params['vendor_uid'] . "&uid=" . $contactUid;
-
-		// Endpoints específicos
-		$web_endpoint                   = $general_endpoint . "web" . $general_parameters_endpoint;
-		$keywords_general_endpoint      = $general_endpoint . "keywords/general" . $general_parameters_endpoint;
-		$keywords_commerce_endpoint     = $general_endpoint . "keywords/commerce" . $general_parameters_endpoint;
-		// Se utiliza el endpoint de commerce para keywords.
-		$interacciones_usuario_endpoint = $general_endpoint . "user" . $general_parameters_endpoint;
-		$products_search_endpoint       = $general_endpoint . "search/products" . $general_parameters_endpoint;
-		$pages_search_endpoint          = $general_endpoint . "search/pages" . $general_parameters_endpoint;
-		$general_search_endpoint        = $general_endpoint . "search/general" . $general_parameters_endpoint;
-		$locations_endpoint             = $general_endpoint . "sucursales" . $general_parameters_endpoint;
-
-		// 3. Obtener las últimas 10 interacciones del usuario
-		$ultimas_interacciones_usuario_web = "";
-		try {
-			$responseInteracciones = Http::timeout(60)->get($interacciones_usuario_endpoint);
-			\Log::info("handleVendorWebhookGenerator - Llamada a interacciones: " . $interacciones_usuario_endpoint);
-			if ($responseInteracciones->successful()) {
-				$dataInteracciones = $responseInteracciones->json();
-				// Filtrar interacciones para excluir agentes (guzzle, postman)
-				$dataInteracciones = array_filter($dataInteracciones, function ($item) {
-					$userAgent = $item['user_agent'] ?? '';
-					return (stripos($userAgent, 'guzzle') === false && stripos($userAgent, 'postman') === false);
-				});
-				// Ordenar las interacciones por fecha descendente
-				usort($dataInteracciones, function ($a, $b) {
-					return strtotime($b['fecha']) - strtotime($a['fecha']);
-				});
-				// Tomar las 10 interacciones más recientes
-				$ultimasInteracciones = array_slice($dataInteracciones, 0, 10);
-				// Extraer los datos relevantes para la IA
-				$datosRelevantes = array_map(function ($item) {
-					return [
-						'url'        => $item['url'] ?? null,
-						'parametros' => $item['parametros'] ?? null,
-						'fecha'      => $item['fecha'] ?? null,
-						'location'   => $item['location'] ?? null,
-					];
-				}, $ultimasInteracciones);
-				$ultimas_interacciones_usuario_web = json_encode($datosRelevantes, JSON_PRETTY_PRINT);
-				\Log::info("handleVendorWebhookGenerator - Últimas interacciones procesadas: " . $ultimas_interacciones_usuario_web);
-			} else {
-				\Log::error("handleVendorWebhookGenerator - Error al obtener interacciones", [
-					'url'    => $interacciones_usuario_endpoint,
-					'status' => $responseInteracciones->status()
-				]);
-			}
-		} catch (\Exception $e) {
-			\Log::error("handleVendorWebhookGenerator - Exception al obtener interacciones", ['message' => $e->getMessage()]);
-		}
-
-		// 4. Obtener datos web globales
-		$web_data = "";
-		try {
-			$responseWeb = Http::timeout(60)->get($web_endpoint);
-			\Log::info("handleVendorWebhookGenerator - Llamada a datos web: " . $web_endpoint);
-			if ($responseWeb->failed()) {
-				\Log::error("handleVendorWebhookGenerator - Error al obtener datos web", [
-					'url'    => $web_endpoint,
-					'status' => $responseWeb->status()
-				]);
-			} else {
-				$web_data = $responseWeb->body();
-				\Log::info("handleVendorWebhookGenerator - Datos web obtenidos: " . $web_data);
-			}
-		} catch (\Exception $e) {
-			\Log::error("handleVendorWebhookGenerator - Exception al obtener datos web", ['message' => $e->getMessage()]);
-		}
-
-		// 5. Obtener listado de palabras clave (keywords) desde el endpoint de commerce
-		$keywordsList = [];
-		try {
-			$responseKeywords = Http::timeout(10)->get($keywords_commerce_endpoint);
-			\Log::info("handleVendorWebhookGenerator - Llamada a keywords: " . $keywords_commerce_endpoint);
-			if ($responseKeywords->failed()) {
-				\Log::error("handleVendorWebhookGenerator - Error al obtener keywords", [
-					'url'    => $keywords_commerce_endpoint,
-					'status' => $responseKeywords->status()
-				]);
-				return response()->json([
-					'error' => true,
-					'msg'   => 'No se pudo obtener el listado de palabras clave.'
-				], 200);
-			}
-			$keywordsList = $responseKeywords->json();
-			\Log::info("handleVendorWebhookGenerator - Keywords obtenidas: " . json_encode($keywordsList));
-		} catch (\Exception $e) {
-			\Log::error("handleVendorWebhookGenerator - Exception al obtener keywords", ['message' => $e->getMessage()]);
-			return response()->json([
-				'error' => true,
-				'msg'   => 'Excepción al obtener palabras clave.'
-			], 200);
-		}
-
-		// 6. Generar prompt para obtener palabras clave relevantes a partir del mensaje del usuario
-		$promptText = "Basado en el siguiente mensaje del usuario: \"$mensaje_cliente\", genera una lista de palabras clave relevantes para identificar productos en nuestro catálogo. " .
-					  "Utiliza únicamente las siguientes palabras clave disponibles: " . json_encode($keywordsList) . ". " .
-					  "Incluye también palabras o sinónimos presentes en el mensaje. " .
-					  "Devuelve únicamente un JSON que contenga un array de palabras clave. Ejemplo: [\"android\", \"64\"]";
-
-		$payloadKeywords = [
-			'model'      => 'gpt-4o-mini',
-			'messages'   => [
-				[
-					'role'    => 'user',
-					'content' => $promptText
-				]
-			],
-			'max_tokens' => 150,
-		];
-
-		$responseGeneratedKeywords = $this->callOpenAi($apiKey, $idOrg, $payloadKeywords);
-		if ($responseGeneratedKeywords['error']) {
-			\Log::error("handleVendorWebhookGenerator - Error al generar palabras clave", [
-				'msg' => $responseGeneratedKeywords['msg']
-			]);
-			return response()->json([
-				'error' => true,
-				'msg'   => 'Error al generar palabras clave.'
-			], 200);
-		}
-		$generatedKeywordsContent = $responseGeneratedKeywords['content'] ?? '[]';
-		\Log::info("handleVendorWebhookGenerator - Palabras clave generadas: " . $generatedKeywordsContent);
-
-		// Función auxiliar para extraer un array JSON de la respuesta textual
-		function extraer_json_array($texto)
-		{
-			preg_match('/\[(.*?)\]/s', $texto, $matches);
-			if (!empty($matches)) {
-				return '[' . $matches[1] . ']';
-			}
-			return null;
-		}
-		$jsonKeywordsExtracted = extraer_json_array($generatedKeywordsContent);
-		$finalKeywords = json_decode($jsonKeywordsExtracted, true);
-		if (json_last_error() !== JSON_ERROR_NONE) {
-			\Log::error("handleVendorWebhookGenerator - Error al decodificar JSON de palabras clave generadas", [
-				'jsonError' => json_last_error_msg()
-			]);
-			return response()->json([
-				'error' => true,
-				'msg'   => 'Error al decodificar el JSON de palabras clave generadas.'
-			], 200);
-		}
-		\Log::info("handleVendorWebhookGenerator - JSON final de palabras clave: " . json_encode($finalKeywords));
-
-		// 7. Convertir el array de keywords en una cadena separada por comas  (SIN espacios).
-		$keywordsString = is_array($finalKeywords) 
-			? implode(",", $finalKeywords) 
-			: "";
-
-		// 2. Cuando armes la URL, usa la variable $keywordsString:
-		$searchUrl = $general_endpoint 
-			. "search/products" 
-			. $general_parameters_endpoint 
-			. "&keywords=" . $keywordsString
-			. "&limit=10";
-		
-		\Log::info("handleVendorWebhookGenerator - URL de consulta: " . $searchUrl);
-		if (isset($params['stock'])) {
-			$searchUrl .= "&stock=" . $params['stock'];
-		}
-		try {
-			$responseProducts = Http::timeout(60)->get($searchUrl);
-			\Log::info("handleVendorWebhookGenerator - Llamada a productos: " . $searchUrl);
-			if ($responseProducts->failed()) {
-				\Log::error("handleVendorWebhookGenerator - Error al obtener productos", [
-					'url'    => $searchUrl,
-					'status' => $responseProducts->status()
-				]);
-				return response()->json([
-					'error' => true,
-					'msg'   => 'No se pudieron obtener productos.'
-				], 200);
-			}
-			// Decodificar la respuesta JSON para obtener el array de productos
-			$productosData = $responseProducts;
-			$productos_ecommerce = $productosData;
-			\Log::info("handleVendorWebhookGenerator - Productos obtenidos: " . $productos_ecommerce);
-		} catch (\Exception $e) {
-			\Log::error("handleVendorWebhookGenerator - Exception al obtener productos", ['message' => $e->getMessage()]);
-			return response()->json([
-				'error' => true,
-				'msg'   => 'Excepción al obtener productos.'
-			], 200);
-		}
-
-		// 9. Obtener datos de sucursales (ubicaciones) desde el endpoint de sucursales
-		$businessData = [];
-		try {
-			$responseLocations = Http::timeout(60)->get($locations_endpoint);
-			\Log::info("handleVendorWebhookGenerator - Llamada a sucursales: " . $locations_endpoint);
-			if ($responseLocations->successful()) {
-				$businessData = $responseLocations->json();
-				\Log::info("handleVendorWebhookGenerator - Sucursales obtenidas: " . json_encode($businessData));
-			} else {
-				\Log::error("handleVendorWebhookGenerator - Error al obtener sucursales", [
-					'url'    => $locations_endpoint,
-					'status' => $responseLocations->status()
-				]);
-			}
-		} catch (\Exception $e) {
-			\Log::error("handleVendorWebhookGenerator - Exception al obtener sucursales", ['message' => $e->getMessage()]);
-		}
-
-		// 10. Preparar la respuesta final consolidada
-		$respuestaFinal = [
-			'ultimas_interacciones_usuario_web' => $ultimas_interacciones_usuario_web,
-			'web'                               => "Datos de la web: " . $web_data,
-			'productos'                         => "Listado de productos: " . $productos_ecommerce,
-			'sucursales_informativas'           => "Información de sucursales: " . json_encode($businessData)
-		];
-
-		\Log::info("handleVendorWebhookGenerator - Respuesta final preparada: " . json_encode($respuestaFinal));
-
-		return response()->json([
-			'error'         => false,
-			'vendor_id'     => $params['vendor_id'] ?? 13,
-			'contact_uid'   => $contactUid,
-			'processed_data'=> json_encode($respuestaFinal)
-		], 200);
-	}
 	
-	/*enviar notificación push a nuevo local en caso de ser necesario*/
+	
+	
+	
+	
+////////////////////////////////////////////////////////////////////	
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////
+///////////////////////////////////////////
+///////////////////////////////////////////
+	
+	
+	
+private function handleVendorWebhookGenerator($params) {
+    $question                     = $params['question'] ?? null;
+    $contactUid                   = $params['contact_uid'] ?? null;
+    $mensajes_anteriores_contacto = $params['mensajes_anteriores_contacto'] ?? null;
+    $apiKey                       = $params['open_ai_access_key'] ?? null;
+    $idOrg                        = $params['open_ai_organization'] ?? null;
+    $mensaje_cliente              = $question;
+    $topSections                  = $params['top_sections'] ?? [];
+    $combinedSections             = $params['combined_sections'] ?? '';
+    $api_data_ai                  = $params['api_data_ai'] ?? [];
+    $contactContext               = $params['contact_context'] ?? '';
+    $prompt_url_items             = $params['prompt_url_items'] ?? [];
+    $prompt_final                 = $params['prompt_final'] ?? [];
+
+    // Imprime en consola el contact_uid de la forma solicitada.
+    Log::info("Este es el contactIUD -> " . $contactUid);
+
+    // Si el contact_uid coincide, se activa la condición especial.
+    if ($contactUid === "b605e0be-a621-497d-9831-6643229309c7") {
+        Log::info("Condición especial: se invoca la API de Flowise para obtener respuesta.");
+
+        $flowiseApiUrl = "https://workflow.alfabusiness.app/api/v1/prediction/e9bab3ac-d4a8-4b0f-9133-3b03b9c12f86";
+        try {
+            // Se envía la petición POST a la API de Flowise.
+            // Puedes ajustar el payload que se envía. En este ejemplo se envía la pregunta recibida.
+            $responseFlowise = Http::timeout(60)->post($flowiseApiUrl, [
+                'question' => $question,
+                // Puedes agregar otros parámetros según lo requiera la API.
+            ]);
+
+            if ($responseFlowise->failed()) {
+                Log::error("Flowise API call failed", [
+                    'url'    => $flowiseApiUrl,
+                    'status' => $responseFlowise->status()
+                ]);
+                return response()->json([
+                    'error' => true,
+                    'msg'   => 'Error al obtener respuesta de Flowise API.'
+                ], 200);
+            }
+
+            $flowiseData = $responseFlowise->json();
+            $flowiseText = $flowiseData['text'] ?? '';
+
+            Log::info("Flowise API response received: " . $flowiseText);
+        } catch (\Exception $e) {
+            Log::error("Exception calling Flowise API", ['message' => $e->getMessage()]);
+            return response()->json([
+                'error' => true,
+                'msg'   => 'Excepción al llamar a Flowise API.'
+            ], 200);
+        }
+
+        // Ahora se envía el contenido obtenido al modelo de IA para que lo razone.
+        $payloadRazonamiento = [
+            'model'      => 'gpt-4o-mini',
+            'messages'   => [
+                [
+                    'role'    => 'user',
+                    'content' => "Por favor razona la siguiente respuesta y genera un mensaje final: " . $flowiseText,
+                ]
+            ],
+            'max_tokens' => 150,
+        ];
+
+        $responseRazonamiento = $this->callOpenAi($apiKey, $idOrg, $payloadRazonamiento);
+        if ($responseRazonamiento['error']) {
+            Log::error("Error al generar razonamiento", [
+                'msg' => $responseRazonamiento['msg']
+            ]);
+            return response()->json([
+                'error' => true,
+                'msg'   => 'Error al generar respuesta.'
+            ], 200);
+        }
+        $razonamientoContent = $responseRazonamiento['content'] ?? '';
+
+        return response()->json([
+            'error'         => false,
+            'vendor_id'     => $params['vendor_id'] ?? 13,
+            'contact_uid'   => $contactUid,
+            'processed_data'=> $razonamientoContent
+        ], 200);
+    }
+
+    // Validación de parámetros
+    if (!$question || !$contactUid) {
+        Log::error("handleVendorWebhookGenerator - Falta alguno de los parámetros requeridos", [
+            'question'   => $question,
+            'contactUid' => $contactUid
+        ]);
+        return response()->json([
+            'error'   => true,
+            'message' => 'Faltan parámetros "question" o "contact_uid".'
+        ], 400);
+    }
+
+    $contact = ContactModel::where('_uid', $contactUid)->first();
+    $general_endpoint = "https://" . $params['domain_variable_vendor'] . "/wp-json/alfabusiness/api/v1/";
+    $general_parameters_endpoint = "?token=" . $params['vendor_access_token'] . "&uid_vendor=" . $params['vendor_uid'] . "&uid=" . $contactUid;
+    $web_endpoint                   = $general_endpoint . "web" . $general_parameters_endpoint;
+    $keywords_general_endpoint      = $general_endpoint . "keywords/general" . $general_parameters_endpoint;
+    $keywords_commerce_endpoint     = $general_endpoint . "keywords/commerce" . $general_parameters_endpoint;
+    $interacciones_usuario_endpoint = $general_endpoint . "user" . $general_parameters_endpoint;
+    $products_search_endpoint       = $general_endpoint . "search/products" . $general_parameters_endpoint;
+    $pages_search_endpoint          = $general_endpoint . "search/pages" . $general_parameters_endpoint;
+    $general_search_endpoint        = $general_endpoint . "search/general" . $general_parameters_endpoint;
+    $locations_endpoint             = $general_endpoint . "sucursales" . $general_parameters_endpoint;
+    $ultimas_interacciones_usuario_web = "";
+
+    try {
+        $responseInteracciones = Http::timeout(60)->get($interacciones_usuario_endpoint);
+        Log::info("handleVendorWebhookGenerator - Llamada a interacciones: " . $interacciones_usuario_endpoint);
+        if ($responseInteracciones->successful()) {
+            $dataInteracciones = $responseInteracciones->json();
+            $dataInteracciones = array_filter($dataInteracciones, function ($item) {
+                $userAgent = $item['user_agent'] ?? '';
+                return (stripos($userAgent, 'guzzle') === false && stripos($userAgent, 'postman') === false);
+            });
+            usort($dataInteracciones, function ($a, $b) {
+                return strtotime($b['fecha']) - strtotime($a['fecha']);
+            });
+            $ultimasInteracciones = array_slice($dataInteracciones, 0, 10);
+            $datosRelevantes = array_map(function ($item) {
+                return [
+                    'url'        => $item['url'] ?? null,
+                    'parametros' => $item['parametros'] ?? null,
+                    'fecha'      => $item['fecha'] ?? null,
+                    'location'   => $item['location'] ?? null,
+                ];
+            }, $ultimasInteracciones);
+            $ultimas_interacciones_usuario_web = json_encode($datosRelevantes, JSON_PRETTY_PRINT);
+            Log::info("handleVendorWebhookGenerator - Últimas interacciones procesadas: " . $ultimas_interacciones_usuario_web);
+        } else {
+            Log::error("handleVendorWebhookGenerator - Error al obtener interacciones", [
+                'url'    => $interacciones_usuario_endpoint,
+                'status' => $responseInteracciones->status()
+            ]);
+        }
+    } catch (\Exception $e) {
+        Log::error("handleVendorWebhookGenerator - Exception al obtener interacciones", ['message' => $e->getMessage()]);
+    }
+
+    $web_data = "";
+    try {
+        $responseWeb = Http::timeout(60)->get($web_endpoint);
+        Log::info("handleVendorWebhookGenerator - Llamada a datos web: " . $web_endpoint);
+        if ($responseWeb->failed()) {
+            Log::error("handleVendorWebhookGenerator - Error al obtener datos web", [
+                'url'    => $web_endpoint,
+                'status' => $responseWeb->status()
+            ]);
+        } else {
+            $web_data = $responseWeb->body();
+            Log::info("handleVendorWebhookGenerator - Datos web obtenidos: " . $web_data);
+        }
+    } catch (\Exception $e) {
+        Log::error("handleVendorWebhookGenerator - Exception al obtener datos web", ['message' => $e->getMessage()]);
+    }
+
+    $keywordsList = [];
+    try {
+        $responseKeywords = Http::timeout(10)->get($keywords_commerce_endpoint);
+        Log::info("handleVendorWebhookGenerator - Llamada a keywords: " . $keywords_commerce_endpoint);
+        if ($responseKeywords->failed()) {
+            Log::error("handleVendorWebhookGenerator - Error al obtener keywords", [
+                'url'    => $keywords_commerce_endpoint,
+                'status' => $responseKeywords->status()
+            ]);
+            return response()->json([
+                'error' => true,
+                'msg'   => 'No se pudo obtener el listado de palabras clave.'
+            ], 200);
+        }
+        $keywordsList = $responseKeywords->json();
+        Log::info("handleVendorWebhookGenerator - Keywords obtenidas: " . json_encode($keywordsList));
+    } catch (\Exception $e) {
+        Log::error("handleVendorWebhookGenerator - Exception al obtener keywords", ['message' => $e->getMessage()]);
+        return response()->json([
+            'error' => true,
+            'msg'   => 'Excepción al obtener palabras clave.'
+        ], 200);
+    }
+
+    $promptText = "Basado en el siguiente mensaje del usuario: \"$mensaje_cliente\", genera una lista de palabras clave relevantes para identificar productos en nuestro catálogo. " .
+                  "Utiliza únicamente las siguientes palabras clave disponibles: " . json_encode($keywordsList) . ". " .
+                  "Incluye también palabras o sinónimos presentes en el mensaje. " .
+                  "Devuelve únicamente un JSON que contenga un array de palabras clave. Ejemplo: [\"android\", \"64\"]";
+    $payloadKeywords = [
+        'model'      => 'gpt-4o-mini',
+        'messages'   => [
+            [
+                'role'    => 'user',
+                'content' => $promptText
+            ]
+        ],
+        'max_tokens' => 150,
+    ];
+    $responseGeneratedKeywords = $this->callOpenAi($apiKey, $idOrg, $payloadKeywords);
+    if ($responseGeneratedKeywords['error']) {
+        Log::error("handleVendorWebhookGenerator - Error al generar palabras clave", [
+            'msg' => $responseGeneratedKeywords['msg']
+        ]);
+        return response()->json([
+            'error' => true,
+            'msg'   => 'Error al generar palabras clave.'
+        ], 200);
+    }
+    $generatedKeywordsContent = $responseGeneratedKeywords['content'] ?? '[]';
+    Log::info("handleVendorWebhookGenerator - Palabras clave generadas: " . $generatedKeywordsContent);
+
+    function extraer_json_array($texto) {
+        preg_match('/\[(.*?)\]/s', $texto, $matches);
+        if (!empty($matches)) {
+            return '[' . $matches[1] . ']';
+        }
+        return null;
+    }
+    $jsonKeywordsExtracted = extraer_json_array($generatedKeywordsContent);
+    $finalKeywords = json_decode($jsonKeywordsExtracted, true);
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        Log::error("handleVendorWebhookGenerator - Error al decodificar JSON de palabras clave generadas", [
+            'jsonError' => json_last_error_msg()
+        ]);
+        return response()->json([
+            'error' => true,
+            'msg'   => 'Error al decodificar el JSON de palabras clave generadas.'
+        ], 200);
+    }
+    Log::info("handleVendorWebhookGenerator - JSON final de palabras clave: " . json_encode($finalKeywords));
+    $keywordsString = is_array($finalKeywords) ? implode(",", $finalKeywords) : "";
+    $searchUrl = $general_endpoint . "search/products" . $general_parameters_endpoint . "&keywords=" . $keywordsString . "&limit=10";
+    Log::info("handleVendorWebhookGenerator - URL de consulta: " . $searchUrl);
+    if (isset($params['stock'])) {
+        $searchUrl .= "&stock=" . $params['stock'];
+    }
+    try {
+        $responseProducts = Http::timeout(60)->get($searchUrl);
+        Log::info("handleVendorWebhookGenerator - Llamada a productos: " . $searchUrl);
+        if ($responseProducts->failed()) {
+            Log::error("handleVendorWebhookGenerator - Error al obtener productos", [
+                'url'    => $searchUrl,
+                'status' => $responseProducts->status()
+            ]);
+            return response()->json([
+                'error' => true,
+                'msg'   => 'No se pudieron obtener productos.'
+            ], 200);
+        }
+        $productosData = $responseProducts;
+        $productos_ecommerce = $productosData;
+        Log::info("handleVendorWebhookGenerator - Productos obtenidos: " . $productos_ecommerce);
+    } catch (\Exception $e) {
+        Log::error("handleVendorWebhookGenerator - Exception al obtener productos", ['message' => $e->getMessage()]);
+        return response()->json([
+            'error' => true,
+            'msg'   => 'Excepción al obtener productos.'
+        ], 200);
+    }
+
+    $businessData = [];
+    try {
+        $responseLocations = Http::timeout(60)->get($locations_endpoint);
+        Log::info("handleVendorWebhookGenerator - Llamada a sucursales: " . $locations_endpoint);
+        if ($responseLocations->successful()) {
+            $businessData = $responseLocations->json();
+            Log::info("handleVendorWebhookGenerator - Sucursales obtenidas: " . json_encode($businessData));
+        } else {
+            Log::error("handleVendorWebhookGenerator - Error al obtener sucursales", [
+                'url'    => $locations_endpoint,
+                'status' => $responseLocations->status()
+            ]);
+        }
+    } catch (\Exception $e) {
+        Log::error("handleVendorWebhookGenerator - Exception al obtener sucursales", ['message' => $e->getMessage()]);
+    }
+
+    $respuestaFinal = [
+        'ultimas_interacciones_usuario_web' => $ultimas_interacciones_usuario_web,
+        'web'                               => "Datos de la web: " . $web_data,
+        'productos'                         => "Listado de productos: " . $productos_ecommerce,
+        'sucursales_informativas'           => "Información de sucursales: " . json_encode($businessData)
+    ];
+    Log::info("handleVendorWebhookGenerator - Respuesta final preparada: " . json_encode($respuestaFinal));
+    return response()->json([
+        'error'         => false,
+        'vendor_id'     => $params['vendor_id'] ?? 13,
+        'contact_uid'   => $contactUid,
+        'processed_data'=> json_encode($respuestaFinal)
+    ], 200);
+}
+
+	
+	
+	
+	
+	
+	
+//////////////////////////////////////////
+//////////////////////////////////////////
+//////////////////////////////////////////
+//////////////////////////////////////////	
+////////////////////////////////////////////////////////////////////	
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////
 	
     private function sendPushNotification(string $title, string $body, int $vendorId, string $url, string $contactUid)
     {

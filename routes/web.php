@@ -1226,13 +1226,13 @@ Route::post('/razorpay/order-payment-razorpay-webhook', [
 Route::get('/contact-pdf/{contactUid}', [ContactController::class, 'descargarContactoPDF'])->name('contact.pdf.download');
 
 
-Route::group(['prefix' => 'api'], function () {
+Route::group(['prefix' => 'legal'], function () {
     Route::get('privacy-policy/{vendorUID}', [VendorController::class, 'privacyPolicy']);
 });
 
 
 
-Route::group(['prefix' => 'api'], function () {
+Route::group(['prefix' => 'legal'], function () {
     Route::get('terms-and-conditions/{vendorUID}', [VendorController::class, 'termsAndConditions']);
 });
 

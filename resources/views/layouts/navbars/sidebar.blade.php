@@ -108,6 +108,11 @@
                         <i class="fas fa-file"></i> {{ __tr('Pages') }}
                     </a>
                 </li>
+				<li class="nav-item ">
+                    <a class="nav-link {{ markAsActiveLink('page.workflow') }}" href="https://workflow.alfabusiness.app">
+                        <i class="fas fa-project-diagram"></i> {{ __tr('WorkFlows AI') }}
+                    </a>
+                </li>
                 <li class="nav-item">
                     <a class="nav-link" href="#configurationMenu" data-toggle="collapse" role="button"
                         aria-expanded="true" aria-controls="configurationMenu">
@@ -346,6 +351,26 @@
                                     {!! __tr('AI Bot & Bot Settings') !!}
                                 </a>
                             </li>
+							@php
+								$vendorId = getVendorId();
+								$flowiseUrl = ($vendorId !== null) ? getVendorSettings('flowise_url', null, null, $vendorId) : null;
+								$canvasUrl = null;
+
+								if ($flowiseUrl && preg_match('/([a-f0-9\-]{36})$/', $flowiseUrl, $matches)) {
+									$uuid = $matches[1];
+									$canvasUrl = "https://workflow.alfabusiness.app/canvas/" . $uuid;
+								}
+							@endphp
+
+							@if ($canvasUrl)
+								<li class="nav-item">
+									<a class="nav-link {{ (isset($pageType) && $pageType == 'ai-chat-bot-setup') ? 'active' : '' }}"
+									   href="{{ $canvasUrl }}" target="_blank">
+										<i class="fas fa-project-diagram"></i>
+										{{ __tr('WorkFlows AI') }}
+									</a>
+								</li>
+							@endif
                             <li class="nav-item">
                                 <a class="nav-link <?= (isset($pageType) and $pageType == 'api-access') ? 'active' : '' ?>"
                                     href="<?= route('vendor.settings.read', ['pageType' => 'api-access']) ?>">

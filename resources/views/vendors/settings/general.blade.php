@@ -108,6 +108,18 @@
                     </x-slot>
                 </x-lw.input-field>
                 <!-- /Select Default language -->
+				<!-- Terms and Conditions -->
+				<div class="col-md-4">
+					<div class="row text-center">
+						<label>{{ __tr('Legal') }}</label>
+					</div>
+					<div class="row">
+						<a href="https://crm.alfabusiness.app/legal/terms-and-conditions/{{ getVendorUid() }}" class="btn btn-primary btn-user lw-btn-block-mobile m-3" >{{ __tr('Terms and Conditions') }}</a>
+						<a href="https://crm.alfabusiness.app/legal/privacy-policy/{{ getVendorUid() }}" class="btn btn-primary btn-user lw-btn-block-mobile m-3" >{{ __tr('Privacy Policy') }}</a>
+					</div>
+                </div>
+				<!-- Terms and Conditions -->
+				
             </div>
         </fieldset>
         <div class="row">

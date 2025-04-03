@@ -288,4 +288,44 @@ class VendorSettingsController extends BaseController
 		]);
 	}
 	
+	
+public function getLegalContent()
+{
+    // Define los datos necesarios para ambas vistas
+    $data = [
+        'updated_at'         => date('d/m/Y'),
+        'vendor_title'       => 'Nombre de tu Empresa',
+        'address_and_contact'=> 'Dirección de la Empresa',
+        'address_line'       => 'Línea de dirección',
+        'postal_code'        => 'Código Postal',
+        'business_phone'     => 'Número de Teléfono',
+        'contact_email'      => 'correo@ejemplo.com',
+        'city'               => 'Ciudad',
+        'state'              => 'Estado',
+        'select_country'     => 'País'
+    ];
+
+    // Procesa la vista de política de privacidad
+    $privacyHtml = view('privacy', compact('data'))->render();
+    // Elimina los bloques de JavaScript
+    $privacyHtmlWithoutScript = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $privacyHtml);
+    // Elimina etiquetas HTML
+    $privacyText = strip_tags($privacyHtmlWithoutScript);
+    // Quita los saltos de línea
+    $privacyText = str_replace(["\r", "\n"], '', $privacyText);
+
+    // Procesa la vista de términos y condiciones
+    $termsHtml = view('termsyconditions', compact('data'))->render();
+    $termsHtmlWithoutScript = preg_replace('/<script\b[^>]*>(.*?)<\/script>/is', '', $termsHtml);
+    $termsText = strip_tags($termsHtmlWithoutScript);
+    $termsText = str_replace(["\r", "\n"], '', $termsText);
+
+    // Retorna ambos contenidos en un único endpoint, sin escapar caracteres Unicode
+    return response()->json([
+        'privacy' => $privacyText,
+        'terms'   => $termsText,
+    ], 200, [], JSON_UNESCAPED_UNICODE);
+}
+
+	
 }

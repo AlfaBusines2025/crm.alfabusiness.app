@@ -11,7 +11,6 @@
                 </div>
                 <div class="card-body px-lg-5 py-lg-5">
                     
-
                     <!-- Contenido -->
                     <div class="content">
                         <section id="introduccion" class="mb-4">
@@ -36,8 +35,6 @@
                             <div class="ml-4">
                                 <h3>3.1. Datos de la Empresa</h3>
                                 <ul>
-                                    <li><strong>Datos de la Empresa:</strong> {{ $data['vendor_title'] }}.</li>
-                                    <li><strong>Información Comercial:</strong> {{ $data['business_information'] }}.</li>
                                     <li>
                                         <strong>Dirección y Contacto:</strong> {{ $data['address_and_contact'] }}, {{ $data['address_line'] }}, {{ $data['postal_code'] }}, Quito, Ecuador.
                                     </li>
@@ -137,6 +134,23 @@
                             </ul>
                         </section>
                     </div>
+
+                    <!-- Enlaces para usuarios con vendor -->
+                    <div class="mt-5 text-center">
+                        <a href="https://crm.alfabusiness.app/legal/privacy-policy/8c7e3861-e6da-46f5-8828-51d6eac3ce67" class="btn btn-outline-primary mx-2">Política de Privacidad</a>
+                        <a href="https://crm.alfabusiness.app/legal/terms-and-conditions/8c7e3861-e6da-46f5-8828-51d6eac3ce67" class="btn btn-outline-primary mx-2">Términos y Condiciones</a>
+                    </div>
+
+                    <!-- Enlaces generales para el sistema -->
+                    <div class="mt-5 text-center">
+                        <h5>Para conocer los términos, condiciones y políticas de privacidad del CRM Alfa Business App, ingresa a estos enlaces:</h5>
+                        <div class="d-flex justify-content-center flex-wrap mt-3">
+                            <a href="https://crm.alfabusiness.app/page/4f58ccc1-d636-4685-9333-ea5e28fd4596/politicaprivacidad" class="btn btn-outline-secondary mx-2 my-2">Política de Privacidad (General)</a>
+                            <a href="https://crm.alfabusiness.app/page/9ffa7fa2-1490-4f28-8ad7-5a2aae0f6724/terminosycondiciones" class="btn btn-outline-secondary mx-2 my-2">Términos y Condiciones (General)</a>
+                            <a href="https://crm.alfabusiness.app/page/c9ac12f6-245a-456e-89be-e8e7442463c0/eliminaciondatosusuario" class="btn btn-outline-secondary mx-2 my-2">Eliminación de Datos de Usuario</a>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
