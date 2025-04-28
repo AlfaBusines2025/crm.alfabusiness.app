@@ -136,7 +136,7 @@ class CustomApisService
 	
 	
 private function handleVendorWebhookGenerator($params) {
-    $question                     = $params['question'] ?? null;
+    $question                     = $params['question'] ?? null;	
     $contactUid                   = $params['contact_uid'] ?? null;
     $mensajes_anteriores_contacto = $params['mensajes_anteriores_contacto'] ?? null;
     $apiKey                       = $params['open_ai_access_key'] ?? null;
@@ -148,89 +148,198 @@ private function handleVendorWebhookGenerator($params) {
     $contactContext               = $params['contact_context'] ?? '';
     $prompt_url_items             = $params['prompt_url_items'] ?? [];
     $prompt_final                 = $params['prompt_final'] ?? [];
-
-    // Imprime en consola el contact_uid de la forma solicitada.
-    Log::info("Este es el contactIUD -> " . $contactUid);
-
-    // Si el contact_uid coincide, se activa la condición especial.
-    if ($contactUid === "b605e0be-a621-497d-9831-6643229309c7") {
-        Log::info("Condición especial: se invoca la API de Flowise para obtener respuesta.");
-
-        $flowiseApiUrl = "https://workflow.alfabusiness.app/api/v1/prediction/e9bab3ac-d4a8-4b0f-9133-3b03b9c12f86";
-        try {
-            // Se envía la petición POST a la API de Flowise.
-            // Puedes ajustar el payload que se envía. En este ejemplo se envía la pregunta recibida.
-            $responseFlowise = Http::timeout(60)->post($flowiseApiUrl, [
-                'question' => $question,
-                // Puedes agregar otros parámetros según lo requiera la API.
-            ]);
-
-            if ($responseFlowise->failed()) {
-                Log::error("Flowise API call failed", [
-                    'url'    => $flowiseApiUrl,
-                    'status' => $responseFlowise->status()
-                ]);
-                return response()->json([
-                    'error' => true,
-                    'msg'   => 'Error al obtener respuesta de Flowise API.'
-                ], 200);
-            }
-
-            $flowiseData = $responseFlowise->json();
-            $flowiseText = $flowiseData['text'] ?? '';
-
-            Log::info("Flowise API response received: " . $flowiseText);
-        } catch (\Exception $e) {
-            Log::error("Exception calling Flowise API", ['message' => $e->getMessage()]);
-            return response()->json([
-                'error' => true,
-                'msg'   => 'Excepción al llamar a Flowise API.'
-            ], 200);
-        }
-
-        // Ahora se envía el contenido obtenido al modelo de IA para que lo razone.
-        $payloadRazonamiento = [
-            'model'      => 'gpt-4o-mini',
-            'messages'   => [
-                [
-                    'role'    => 'user',
-                    'content' => "Por favor razona la siguiente respuesta y genera un mensaje final: " . $flowiseText,
-                ]
-            ],
-            'max_tokens' => 150,
+	
+		/*
+	
+			// 7. Preparar parámetros para CustomApisService
+        $customApiParams = [
+            'vendor_id' => $vendorId,
+            'question' => $question,
+			'mensajes_anteriores_contacto'=> $mensajes_anteriores_contacto,
+            'contact_uid' => $contactUid,
+            'top_sections' => $topSections,
+            'combined_sections' => $combinedSections,
+            'api_data_ai' => $api_data_ai,
+            'contact_context' => $contactContext,
+            'prompt_url_items' => $promptUrlItems,
+            'prompt_final' => $promptFinal,
+			// Parámetros de OpenAI
+			'open_ai_access_key'      => $openAiApiKey,
+			'open_ai_organization'=> $openAiOrgKey,
+			'vendor_webhook_endpoint'=> $vendor_webhook_endpoint,
+			// dominio webhook, vendor acces token y uid vendor
+			'domain_variable_vendor'=> $domain_variable_vendor,
+			'vendor_uid'=> $vendorUid,
+			'vendor_access_token'=> $vendorAccessToken,
+            // Agrega más parámetros según sea necesario
+			'wa_id_contact'=> $wa_id_contact,
+			//configuraciones adicionalesvendor:
+			'requiere_saludo'=> $requiere_saludo,
+			'timezone'=> $timezone,
+			'hora_actual'=> $hora_actual,
+			'botName'=> $botName,
+			'hora_actual'=> $hora_actual,
+			'hora_actual'=> $hora_actual,
+			'prompt'=> $openAIDataPrompt,
+			//$botName ,
         ];
+		
+	*/
 
-        $responseRazonamiento = $this->callOpenAi($apiKey, $idOrg, $payloadRazonamiento);
-        if ($responseRazonamiento['error']) {
-            Log::error("Error al generar razonamiento", [
-                'msg' => $responseRazonamiento['msg']
+
+ /*****************************************************************************************
+ *  Bloque completo actualizado –  ENVÍO A FLOWISE CON TODAS LAS VARIABLES NECESARIAS
+ *  (asume que $params, $question y $contactUid ya están definidos tal como en tu código)
+ *****************************************************************************************/
+if (
+    $contactUid === "b605e0be-a621-497d-9831-6643229309c7" ||
+    $contactUid === "d1234567-abcd-1234-efgh-567890abcdef" ||
+    $contactUid === "a9876543-zyxw-4321-vuts-0987654321ba"
+) {
+    Log::info("Data de WHATSAPP-----------------------------------");
+    Log::info($params);
+    Log::info("FIN de WHATSAPP------------------------------------");
+    Log::info("cgl: Condición especial detectada – invocando Flowise API.");
+
+    /* --------------------------------------------------------------------
+       1. Prepara variables de apoyo
+    -------------------------------------------------------------------- */
+    $flowiseApiUrl = "https://workflow.alfabusiness.app/api/v1/prediction/b0f491b8-a49b-4de8-8de8-14d5621e7471";
+
+    // Imagen del primer prompt_url_items (si hubiera)
+    $imageUrl = $params['prompt_url_items'][0]['image_url']['url'] ?? null;
+
+    // Decodifica el contexto de contacto para extraer first_name, etc.
+    $contactContext = json_decode($params['contact_context'] ?? '{}', true);
+
+    /* --------------------------------------------------------------------
+       2. Construye el bloque base de variables que SIEMPRE envías
+    -------------------------------------------------------------------- */
+    $varsBase = [
+        'url'            => ($params['domain_variable_vendor'] ?? '') . "/wp-json/alfabusiness/api/v1",
+        'questionCrm'    => '',
+        'sessionId'      => $contactUid,
+        'contactUid'     => $contactUid,
+        'mensajeCliente' => '',
+        'token'          => $params['vendor_access_token'] ?? '',
+        'uidVendor'      => $params['vendor_uid']         ?? '',
+        'uid'            => '',
+        'contactContext' => $contactContext,
+        'initPrompt'     => $params['prompt']             ?? '',
+        'firstName'      => $contactContext['first_name'] ?? '',
+    ];
+
+    /* --------------------------------------------------------------------
+       3. Arreglo SOLO con las NUEVAS claves que ahora quieres adjuntar
+          (tomadas directamente de $params)
+    -------------------------------------------------------------------- */
+    $extraVars = [
+        'vendorId'              => $params['vendor_id']                 ?? null,
+        'mensajesAnteriores'    => $params['mensajes_anteriores_contacto'] ?? '',
+        'topSections'           => $params['top_sections']              ?? [],
+        'combinedSections'      => $params['combined_sections']         ?? '',
+        'apiDataAi'             => $params['api_data_ai']               ?? [],
+        'promptUrlItems'        => $params['prompt_url_items']          ?? [],
+        'promptFinal'           => $params['prompt_final']              ?? [],
+        'openAiAccessKey'       => $params['open_ai_access_key']        ?? '',
+        'openAiOrganization'    => $params['open_ai_organization']      ?? '',
+        'vendorWebhookEndpoint' => $params['vendor_webhook_endpoint']   ?? '',
+        'domainVariableVendor'  => $params['domain_variable_vendor']    ?? '',
+        'vendorUid'             => $params['vendor_uid']                ?? '',
+        'vendorAccessToken'     => $params['vendor_access_token']       ?? '',
+        'waIdContact'           => $params['wa_id_contact']             ?? '',
+		'horaActual'            => $params['hora_actual']               ?? '',	
+        'requiereSaludo'        => $params['requiere_saludo']           ?? '',	// alias
+        'timezone'              => $params['timezone']                  ?? '',	// alias
+        'botName'               => $params['botName']                   ?? '',	// alias
+        'promptInit'            => $params['prompt']                    ?? '',  // alias
+    ];
+
+    /* --------------------------------------------------------------------
+       4. Une ambos arrays SIN sobrescribir las claves existentes
+          (el operador + mantiene el valor de la izquierda si la clave se repite)
+    -------------------------------------------------------------------- */
+    $varsFinal = $varsBase + $extraVars;
+
+    /* --------------------------------------------------------------------
+       5. Payload final para Flowise
+    -------------------------------------------------------------------- */
+    $payloadFlowise = [
+        'question'  => $question,
+        'sessionId' => $contactUid,
+        'overrideConfig' => [
+            'vars' => $varsFinal,
+        ],
+    ];
+
+    // Adjunta imagen como “uploads” si está presente
+    if ($imageUrl) {
+        $payloadFlowise['uploads'] = [[
+            'data' => $imageUrl,
+            'type' => 'url',
+            'name' => basename(parse_url($imageUrl, PHP_URL_PATH)),
+            'mime' => 'image/' . pathinfo(parse_url($imageUrl, PHP_URL_PATH), PATHINFO_EXTENSION),
+        ]];
+    }
+
+    Log::info("cgl: Payload para Flowise: " . json_encode($payloadFlowise));
+
+    /* --------------------------------------------------------------------
+       6. Llamada a Flowise
+    -------------------------------------------------------------------- */
+    try {
+        $responseFlowise = Http::timeout(60)->post($flowiseApiUrl, $payloadFlowise);
+
+        if ($responseFlowise->failed()) {
+            Log::error("cgl: Flowise API call failed", [
+                'url'    => $flowiseApiUrl,
+                'status' => $responseFlowise->status(),
             ]);
             return response()->json([
                 'error' => true,
-                'msg'   => 'Error al generar respuesta.'
+                'msg'   => 'Error al obtener respuesta de Flowise API.',
             ], 200);
         }
-        $razonamientoContent = $responseRazonamiento['content'] ?? '';
 
+        $flowiseData = json_decode($responseFlowise->body(), true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            Log::error("cgl: Error decoding Flowise response: " . json_last_error_msg());
+        }
+    } catch (\Exception $e) {
+        Log::error("cgl: Exception calling Flowise API", ['message' => $e->getMessage()]);
         return response()->json([
-            'error'         => false,
-            'vendor_id'     => $params['vendor_id'] ?? 13,
-            'contact_uid'   => $contactUid,
-            'processed_data'=> $razonamientoContent
+            'error' => true,
+            'msg'   => 'Excepción al llamar a Flowise API.',
         ], 200);
     }
 
-    // Validación de parámetros
-    if (!$question || !$contactUid) {
-        Log::error("handleVendorWebhookGenerator - Falta alguno de los parámetros requeridos", [
-            'question'   => $question,
-            'contactUid' => $contactUid
-        ]);
-        return response()->json([
-            'error'   => true,
-            'message' => 'Faltan parámetros "question" o "contact_uid".'
-        ], 400);
-    }
+    Log::info("cgl: Flowise response - text: "      . ($flowiseData['text'] ?? ''));
+    Log::info("cgl: Flowise response - usedTools: " . json_encode($flowiseData['usedTools'] ?? []));
+    Log::info("cgl: Flowise response - question: "  . ($flowiseData['question'] ?? ''));
+    Log::info("cgl: DATA RESPONDE: " . json_encode($flowiseData));
+
+    /* --------------------------------------------------------------------
+       7. Respuesta final al frontend / CRM
+    -------------------------------------------------------------------- */
+    $finalText = "INSTRUCCIÓN: Utiliza la respuesta de Flowise para formular la respuesta final siempre. "
+               . ($flowiseData['text'] ?? '');
+
+    return response()->json([
+        'error'          => false,
+        'vendor_id'      => $params['vendor_id'] ?? 13,
+        'contact_uid'    => $contactUid,
+        'processed_data' => $finalText,
+    ], 200);
+}
+/* ----- FIN DEL BLOQUE DE CONDICIÓN ESPECIAL ---------------------------------- */
+
+
+
+
+
+
+	
+	///// SECCION ANTERIOR
 
     $contact = ContactModel::where('_uid', $contactUid)->first();
     $general_endpoint = "https://" . $params['domain_variable_vendor'] . "/wp-json/alfabusiness/api/v1/";
@@ -643,13 +752,14 @@ private function handleVendorWebhookGenerator($params) {
    */
   private function handleVendor_11($params)
   {
-    //\Log::info('handleVendor_10 iniciada.', ['params' => $params]);
+    //\Log::info('handleVendor_11 iniciada.'. json_encode($params));
 
     /**
      * 1. Asignar las claves necesarias.
      */
     $ApiKeyA10 = "A102025102289bgdnj"; // Clave por defecto
     $mensaje_cliente = $params['question'] ?? null;
+	$question = $mensaje_cliente;
     $apiKey = $params['open_ai_access_key'] ?? null; // Clave de OpenAI
     $idOrg = $params['open_ai_organization'] ?? null; // Organización de OpenAI
     $contactUid = $params['contact_uid'] ?? null; // UID del contacto
@@ -659,7 +769,22 @@ private function handleVendorWebhookGenerator($params) {
     $contactContext = $params['contact_context'] ?? '';
     $prompt_url_items = $params['prompt_url_items'] ?? [];
     $prompt_final = $params['prompt_final'] ?? [];
+	
+	  
+	
+	$contact = ContactModel::where('_uid', $contactUid)->first();
 
+		if (!$question || !$contactUid) {
+			\Log::error("handleVendor_11 - Falta alguno de los parámetros requeridos", [
+				'question'   => $question,
+				'contactUid' => $contactUid
+			]);
+			return response()->json([
+				'error'   => false,
+				'message' => 'Faltan parámetros "question" o "contact_uid" para vendor_id 13.'
+			], 200);
+		}
+	
     /**
      * 2. Construir y procesar prompt_url_items
      */
@@ -667,12 +792,31 @@ private function handleVendorWebhookGenerator($params) {
     foreach ($prompt_url_items as $item) {
       if ($item['type'] === 'audio_url' && isset($item['audio_url']['url'])) {
       } elseif ($item['type'] === 'image_url') {
+		  
+		  $item = $item['image_url']['url'];
+		  $imageUrl = $item;
+			
+			$ext = strtolower(pathinfo($imageUrl, PATHINFO_EXTENSION));
+			$mime = [
+					'jpg'  => 'image/jpeg',
+					'jpeg' => 'image/jpeg',
+					'png'  => 'image/png',
+					'gif'  => 'image/gif',
+					'webp' => 'image/webp',
+				][$ext] ?? 'application/octet-stream';
+
+			$base64    = base64_encode(file_get_contents($imageUrl));
+			$dataUri   = "data:{$mime};base64,{$base64}";
+			
+			$imageUrl = $dataUri;
+		  
         // Añadir imágenes tal cual al prompt
         $processedPromptUrlItems[] = [
           'type' => 'image_url',
           "image_url" => [
-            'url' =>  $item['image_url']['url']
-          ]
+            'url' =>  $imageUrl
+          ],
+		  //'text_transcription' => $item['image_url']['text_transcription']
         ];
         //\Log::debug('handleVendor_10 - Añadida image_url al prompt.', ['image_url' => $item['image_url']['url']]);
       } elseif ($item['type'] === 'document_url') {
@@ -692,6 +836,7 @@ private function handleVendorWebhookGenerator($params) {
       }
     }
 
+
     /**
      * 3. Obtener las palabras clave desde la URL proporcionada
      */
@@ -701,7 +846,7 @@ private function handleVendorWebhookGenerator($params) {
     // Obtener y decodificar las palabras clave usando Laravel HTTP Client
     try {
       //\Log::info('handleVendor_10 - Realizando solicitud para obtener palabras clave.', ['url' => $palabras_clave_url]);
-      $responsePalabrasClave = Http::timeout(10)->get($palabras_clave_url);
+      $responsePalabrasClave = Http::timeout(60)->get($palabras_clave_url);
 
       if ($responsePalabrasClave->failed()) {
         \Log::error("handleVendor_10 - Error al obtener palabras clave. Code: {$responsePalabrasClave->status()}.");
@@ -738,7 +883,6 @@ private function handleVendorWebhookGenerator($params) {
       foreach ($processedPromptUrlItems as $key => $item) {
         if ($item['type'] === 'image_url') {
           $imageUrl = $item['image_url']['url'];
-
           // Armar el prompt en la misma estructura JSON, incluyendo $mensaje_cliente como contexto
           $promptForImageDescription = [
             [
@@ -771,12 +915,16 @@ private function handleVendorWebhookGenerator($params) {
 
           // Llamada a OpenAI para obtener la descripción de la imagen
           $responseImageDescription = $this->callOpenAi($apiKey, $idOrg, $payloadImageDescription);
-
+			
+			\Log::error('handleVendor_11 - Error al describir la imagen con GPT-4o-mini.'.json_encode($responseImageDescription));
           // Manejo de la respuesta
           if ($responseImageDescription['error']) {
-            \Log::error('handleVendor_10 - Error al describir la imagen con GPT-4o-mini.', [
-              'message' => $responseImageDescription['msg']
-            ]);
+			  		// Contenido devuelto por GPT-4o-mini
+					$descripcionImagen = "";
+					// Concatenamos la descripción de la imagen a $mensaje_cliente
+					// para que el motor la considere al generar las palabras clave más tarde
+					$mensaje_cliente .= ' ' . $descripcionImagen;
+					\Log::error('handleVendor_11 - Error al describir la imagen con GPT-4o-mini.'.json_encode($responseImageDescription));
           } else {
             // Contenido devuelto por GPT-4o-mini
             $descripcionImagen = trim($responseImageDescription['content'] ?? '');
@@ -786,6 +934,7 @@ private function handleVendorWebhookGenerator($params) {
             // Concatenamos la descripción de la imagen a $mensaje_cliente
             // para que el motor la considere al generar las palabras clave más tarde
             $mensaje_cliente .= ' ' . $descripcionImagen;
+			  
           }
         }
       }

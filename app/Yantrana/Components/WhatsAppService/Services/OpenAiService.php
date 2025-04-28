@@ -116,6 +116,74 @@ class OpenAiService extends BaseEngine
 
         return 'text';
     }
+	
+	private function transcribeImagen($url)
+	{
+		// Obtén tu API key y Org ID (ajusta según tu configuración)
+		$apiKey = "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";
+		$idOrg   = "org-5H1dwf0eKn5PCR8XaZYINbxo";
+
+		/*
+		 * 2) Construye el prompt para la transcripción
+		 */
+		$promptForTranscription = [
+			[
+				'type'  => 'text',
+				'text'  => 'Describe todo el contenido visible de la siguiente imagen, preservando la mayor fidelidad posible y sin agregar explicaciones adicionales:'
+			],
+			[
+				'type'       => 'image_url',
+				'image_url'  => [
+					'url'    => $url,      // ← ahora es una data-URL, no una URL remota
+				]
+			]
+		];
+		
+		
+
+
+		// Payload para la llamada a OpenAI
+		$payload = [
+			'model'      => 'gpt-4o-mini',
+			'messages'   => [
+				[
+					'role'    => 'user',
+					'content' => $promptForTranscription,
+				],
+			],
+			'max_tokens' => 1024,
+		];
+
+		try {
+		  $response = Http::withHeaders([
+			'Authorization' => 'Bearer ' . $apiKey,
+			'OpenAI-Organization' => $idOrg,
+			'Content-Type' => 'application/json',
+		  ])->timeout(600)->post('https://api.openai.com/v1/chat/completions', $payload);
+			
+		  //\Log::info("Respuesta al generar la IMagen de Open AI: ".$response);
+
+		  if ($response->failed()) {
+			\Log::error("Hubo un error al generar la descripcion de la Imagen: {$response->status()}. Response: {$response->body()}");
+			$respuesta = "";
+			return $respuesta;
+		  }
+
+		  $arrayResponse = $response->json();
+
+		  // Extraer sólo el contenido
+		  $respuesta = $arrayResponse['choices'][0]['message']['content'] ?? '';
+	      
+		  // Retorna el texto transcrito
+		  return $respuesta;
+			
+		} catch (Exception $e) {
+		  \Log::error("La imagen no se ha podido generar" . $e->getMessage());
+		  $respuesta = "";
+		  return $respuesta;
+		} 
+		
+	}
 
     /**
      * Construye un array de prompt a partir de los URLs encontrados en la pregunta.
@@ -129,19 +197,31 @@ class OpenAiService extends BaseEngine
             $fileType = $this->guessFileTypeFromUrl($url);
 
             if ($fileType === 'image_url') {
+				//$text_transcription = $this->transcribeImagen($url);
+				$text_transcription = "";
                 $promptItems[] = [
                     'type' => 'image_url',
                     'image_url' => [
                         'url' => $url
-                    ]
+                    ],
+					'text_transcription' => $text_transcription,
                 ];
+				
+				\Log::info('texto al transcribir la imagen: ' .  $text_transcription);
+				
             } elseif ($fileType === 'audio_url') {
+				
+				$text_transcription = $this->transcribeAudio($url);
+				
                 $promptItems[] = [
                     'type' => 'audio_url',
                     'audio_url' => [
                         'url' => $url
-                    ]
+                    ],
+					'text_transcription' => $text_transcription,
                 ];
+				
+				\Log::info('texto al transcribir el audio: ' .  $text_transcription);
             } elseif ($fileType === 'document_url') {
                 $promptItems[] = [
                     'type' => 'document_url',
@@ -447,6 +527,7 @@ class OpenAiService extends BaseEngine
      */
     public function generateAnswerFromSingleSection($question, $vendorId, $contactUid)
     {
+		
         // 1. Sección relevante
         $relevantSection = $this->findRelevantSection($question, $vendorId);
         $botName  = getVendorSettings('open_ai_bot_name', null, null, $vendorId);
@@ -524,298 +605,328 @@ class OpenAiService extends BaseEngine
     /**
      * ========== GENERA RESPUESTA (MÚLTIPLES SECCIONES) ==========
      */
-    public function generateAnswerFromMultipleSections($question, $contactUid, $vendorId)
-    {
+	public function generateAnswerFromMultipleSections($question, $contactUid, $vendorId)
+		{
+
+			\Log::info("question: " .$question);
 		
-		
-        $botName = getVendorSettings('open_ai_bot_name', null, null, $vendorId);
-        $botDataSourceType = getVendorSettings('open_ai_bot_data_source_type', null, null, $vendorId);
+			$botName = getVendorSettings('open_ai_bot_name', null, null, $vendorId);
+			$botDataSourceType = getVendorSettings('open_ai_bot_data_source_type', null, null, $vendorId);
 
-        if ($botDataSourceType == 'assistant') {
-            // ... tu lógica especial
-            $this->initConfiguration($vendorId);
-            try {
-                // ...
-            } catch (Exception $e) {
-                \Log::error("Error al ejecutar el thread de OpenAI: " . $e->getMessage());
-                return "Lo siento, no pude procesar tu solicitud en este momento. Por favor, intenta de nuevo más tarde.";
-            }
-        }
-		
-		// 1. Obtener el contacto para obtener su ID
-		$contact = ContactModel::where('_uid', $contactUid)->first();
+			$timezone = getVendorSettings('timezone', null, null, $vendorId);
 
-		if (!$contact) {
-			\Log::warning("No se encontró el contacto con _uid: {$contactUid}");
-			return "Información del contacto no disponible.";
-		}
+			if($timezone == null){
+				$timezone = 'America/Bogota';
+			}
 
-		
-		$contactId = $contact->_id;
-		$wa_id_contact = $contact->wa_id;
+			if ($botDataSourceType == 'assistant') {
+				// ... tu lógica especial
+				$this->initConfiguration($vendorId);
+				try {
+					// ...
+				} catch (Exception $e) {
+					\Log::error("Error al ejecutar el thread de OpenAI: " . $e->getMessage());
+					return "Lo siento, no pude procesar tu solicitud en este momento. Por favor, intenta de nuevo más tarde.";
+				}
+			}
 
-		// 2. Obtener los mensajes anteriores
-		$mensajes_anteriores_contacto = $this->obtenerMensajesAnteriores($vendorId, $contactId);
-		
-		$hora_actual = Carbon::now('America/Bogota')->format('Y-m-d H:i:s'); // Restar 5 horas
-        $dia_hoy = Carbon::now('America/Bogota')->locale('es')->isoFormat('dddd'); // Día en español
+			// 1. Obtener el contacto para obtener su ID
+			$contact = ContactModel::where('_uid', $contactUid)->first();
 
-        \Log::info("Hora actual obtenida con Carbon: {$hora_actual}");
-        \Log::info("Hoy es: {$dia_hoy}");
+			if (!$contact) {
+				\Log::warning("No se encontró el contacto con _uid: {$contactUid}");
+				return "Información del contacto no disponible.";
+			}
 
 
-        // 1. Secciones relevantes
-        $topSections = $this->findTopRelevantSections($question, $vendorId);
-        $combinedSections = implode("\n\n", array_column($topSections, 'section'));
+			$contactId = $contact->_id;
+			$wa_id_contact = $contact->wa_id;
 
-        // 2. Endpoints
-        $api_data_ai = [];
-        $maxApis = 5;
-        for ($i = 0; $i < $maxApis; $i++) {
-            $apiName = getVendorSettings("api_data_ai_{$i}_name", null, null, $vendorId) ?? "";
-            $apiEndpoint = getVendorSettings("api_data_ai_{$i}_endpoint", null, null, $vendorId) ?? "";
-            if (!empty($apiEndpoint)) {
-                $api_data_ai[] = [
-                    'name' => $apiName,
-                    'endpoint' => $apiEndpoint,
-                ];
-            }
-        }
+			// 2. Obtener los mensajes anteriores
+			$mensajes_anteriores_contacto = $this->obtenerMensajesAnteriores($vendorId, $contactId);
 
-        foreach ($api_data_ai as $api_data) {
-            $endpoint = $api_data['endpoint'];
-            if (!empty($endpoint)) {
-                $fetchedData = @file_get_contents($endpoint);
-                if ($fetchedData !== false) {
-                    $decodedData = json_decode($fetchedData, true);
-                    if (json_last_error() === JSON_ERROR_NONE) {
-                        if (isset($decodedData['desired_key'])) {
-                            $combinedSections .= "\n\n" . $decodedData['desired_key'];
-                        } else {
-                            $combinedSections .= "\n\n" . $fetchedData;
-                        }
-                    } else {
-                        $combinedSections .= "\n\n" . $fetchedData;
-                    }
-                } else {
-                    \Log::error("Error al obtener datos del endpoint: {$endpoint}");
-                    $combinedSections .= "\n\n[Error al obtener datos de {$api_data['name']}]";
-                }
-            }
-        }
 
-        // 3. Info contacto
-        $contactContext = $this->getContactData($contactUid);
-		
-		//\Log::debug("Contact Context" . json_encode($contactContext));
 
-        // 4. Detectar URLs (incluyendo audios)
-        $promptUrlItems = $this->buildPromptItemsForUrls($question);
+			$hora_actual = Carbon::now($timezone)->format('Y-m-d H:i:s'); // Restar 5 horas
+			$dia_hoy = Carbon::now($timezone)->locale('es')->isoFormat('dddd'); // Día en español
 
-        // --- Transcribir audios aquí también
-        foreach ($promptUrlItems as &$item) {
-            if ($item['type'] === 'audio_url' && isset($item['audio_url']['url'])) {
-                $urlAudio = $item['audio_url']['url'];
-                $textoTranscrito = $this->transcribeAudio($urlAudio);
+			//\Log::info("Hora actual obtenida con Carbon: {$hora_actual}");
+			//\Log::info("Hoy es: {$dia_hoy}");
 
-                // Convertimos a tipo => "text"
-                $item['type'] = 'text';
-                $item['text'] = "Transcripción del audio: {$textoTranscrito}";
 
-                unset($item['audio_url']);
-            }
-        }
-        unset($item);
-		
-		// Obtener el penúltimo mensaje del contacto
-		$penultimoMensaje = WhatsAppMessageLogModel::where('vendors__id', $vendorId)
-			->where('contacts__id', $contactId)
-			->orderBy('created_at', 'desc')
-			->skip(1)
-			->first();
+			// 1. Secciones relevantes
+			$topSections = $this->findTopRelevantSections($question, $vendorId);
+			$combinedSections = implode("\n\n", array_column($topSections, 'section'));
 
-		// Inicializar variable de saludo
-		$saludo = "";
+			// 2. Endpoints
+			$api_data_ai = [];
+			$maxApis = 5;
+			for ($i = 0; $i < $maxApis; $i++) {
+				$apiName = getVendorSettings("api_data_ai_{$i}_name", null, null, $vendorId) ?? "";
+				$apiEndpoint = getVendorSettings("api_data_ai_{$i}_endpoint", null, null, $vendorId) ?? "";
+				if (!empty($apiEndpoint)) {
+					$api_data_ai[] = [
+						'name' => $apiName,
+						'endpoint' => $apiEndpoint,
+					];
+				}
+			}
 
-		if (!$penultimoMensaje) {
-			// Maneja este caso según tu lógica. Por ejemplo, podrías usar el último mensaje o asignar un saludo por defecto.
-			$saludo = "Salúdale al contacto, Dile, 'Hola! cómo estás?' o 'Buenos Días/Buenas Tardes/ Buenas Noches' dependiendo de la hora actual y preséntate, da un saludo y una breve descripción de lo que haces";
-		} else {
-			// Convertir la fecha del penúltimo mensaje a objeto Carbon y ajustarla a la zona horaria deseada
-			$fechaPenultimoMensaje = Carbon::parse($penultimoMensaje->created_at)
-				->setTimezone('America/Bogota');
+			foreach ($api_data_ai as $api_data) {
+				$endpoint = $api_data['endpoint'];
+				if (!empty($endpoint)) {
+					$fetchedData = @file_get_contents($endpoint);
+					if ($fetchedData !== false) {
+						$decodedData = json_decode($fetchedData, true);
+						if (json_last_error() === JSON_ERROR_NONE) {
+							if (isset($decodedData['desired_key'])) {
+								$combinedSections .= "\n\n" . $decodedData['desired_key'];
+							} else {
+								$combinedSections .= "\n\n" . $fetchedData;
+							}
+						} else {
+							$combinedSections .= "\n\n" . $fetchedData;
+						}
+					} else {
+						\Log::error("Error al obtener datos del endpoint: {$endpoint}");
+						$combinedSections .= "\n\n[Error al obtener datos de {$api_data['name']}]";
+					}
+				}
+			}
 
-			// Definir la fecha límite: 24 horas atrás desde el momento actual
-			$limite24Horas = Carbon::now('America/Bogota')->subHours(12);
+			// 3. Info contacto
+			$contactContext = $this->getContactData($contactUid);
 
-			// Comparar las fechas para determinar el saludo
-			if ($fechaPenultimoMensaje->lessThan($limite24Horas)) {
-				// El penúltimo mensaje fue enviado hace más de 24 horas
-				$saludo = "Salúdale al contacto, Dile, 'Hola! cómo estás?' o 'Buenos Días/Buenas Tardes/ Buenas Noches' dependiendo de la hora actual";
+			//\Log::debug("Contact Context" . json_encode($contactContext));
+
+			// 4. Detectar URLs (incluyendo audios)
+			$promptUrlItems = $this->buildPromptItemsForUrls($question);
+
+			// --- Transcribir audios aquí también
+			foreach ($promptUrlItems as &$item) {
+				if ($item['type'] === 'audio_url' && isset($item['audio_url']['url'])) {
+					$urlAudio = $item['audio_url']['url'];
+					$textoTranscrito = $urlAudio = $item['text_transcription'];
+
+					// Convertimos a tipo => "text"
+					$item['type'] = 'text';
+					$item['text'] = "Transcripción del audio: {$textoTranscrito}";
+
+					unset($item['audio_url']);
+				}
+			}
+			unset($item);
+
+			// Obtener el penúltimo mensaje del contacto
+			$penultimoMensaje = WhatsAppMessageLogModel::where('vendors__id', $vendorId)
+				->where('contacts__id', $contactId)
+				->orderBy('created_at', 'desc')
+				->skip(1)
+				->first();
+
+			// Inicializar variable de saludo
+			$saludo = "";
+			$requiere_saludo = "no";
+
+
+			if (!$penultimoMensaje) {
+				// Maneja este caso según tu lógica. Por ejemplo, podrías usar el último mensaje o asignar un saludo por defecto.
+				$saludo = "Salúdale al contacto, Dile, 'Hola! cómo estás?' o 'Buenos Días/Buenas Tardes/ Buenas Noches' dependiendo de la hora actual y preséntate, da un saludo y una breve descripción de lo que haces";
 			} else {
-				// Menos de 24 horas han pasado desde el penúltimo mensaje
-				$saludo = "NUNCA SALUDES, a menos que en la Pregunta te salude";
+				// Convertir la fecha del penúltimo mensaje a objeto Carbon y ajustarla a la zona horaria deseada
+				$fechaPenultimoMensaje = Carbon::parse($penultimoMensaje->created_at)
+					->setTimezone($timezone);
+
+				// Definir la fecha límite: 24 horas atrás desde el momento actual
+				$limite24Horas = Carbon::now($timezone)->subHours(12);
+
+				// Comparar las fechas para determinar el saludo
+				if ($fechaPenultimoMensaje->lessThan($limite24Horas)) {
+					// El penúltimo mensaje fue enviado hace más de 24 horas
+					$saludo = "Salúdale al contacto, Dile, 'Hola! cómo estás?' o 'Buenos Días/Buenas Tardes/ Buenas Noches' dependiendo de la hora actual";
+					//requiere_saludo
+
+					$requiere_saludo = "si";
+
+				} else {
+					// Menos de 24 horas han pasado desde el penúltimo mensaje
+					$saludo = "NUNCA SALUDES, a menos que en la Pregunta te salude";
+					$requiere_saludo = "no";
+				}
+			}
+
+
+
+			$vendor = VendorModel::where([
+				'_id' => $vendorId
+			])->first();
+
+			$vendorUid = $vendor->_uid;
+
+			//4.1 Traer datos de Términos y Condiciones y Políticas de Privacidad
+			$terms_and_conditions_vendor = "https://crm.alfabusiness.app/legal/terms-and-conditions/".$vendor->_uid;
+			//$privacy_policy_vendor = "https://crm.alfabusiness.app/legal/privacy-policy/".getVendorUid();
+
+
+			//4.2.- cambiar combinacion de secciones por todo el prompt de data
+			$openAITariningData = getVendorSettings('open_ai_embedded_training_data', null, null, $vendorId);
+			$openAIDataPrompt = json_encode($openAITariningData['data']);
+
+
+
+			//$combinedSections = $openAIDataPrompt;
+
+			// 5. Texto principal
+			$mainText = "Basándote en la siguiente información del usuario y el contenido adicional, "
+					  . "responde la pregunta de manera clara, consisa a lo que necesita el contacto en su pregunta, toma en cuenta los mensajes anteriores del contacto en caso que sea necesario, y coloca saltos de línea donde sea necesario. Intenta parecer mas una respuesta humana.\n\n" 
+					  . " $saludo\n\n"
+					  . "Información de contacto: $contactContext\n\n"
+					  . "Mensajes anteriores del contacto: $mensajes_anteriores_contacto\n\n"
+					  . "IMPORTANTE: Procura no repetir información que haz mencionado anteriormente en los mensajes anteriores ya que el usuario ya sabe\n\n"
+					  . "Contenido (varias secciones + APIs): $openAIDataPrompt\n\n"
+					  . "Este es el Prompt URL Items: ".json_encode($promptUrlItems)."\n\n"
+					  . "La Hora y fecha actual es: {$hora_actual} y el día es: {$dia_hoy}"."\n\n"
+					  . "Si te preguntan por los términos y condiciones o políticas de Privacidad di que en este URL van a poder encontrar toda la información: {$terms_and_conditions_vendor}"."\n\n"
+					  . "ABSOLUTAMENTE IMPORTANTE: En tu respuesta, NO UTILICES paréntesis, asteriscos ni corchetes al incluir enlaces. "
+					  . "Asegúrate de que los enlaces se presenten separados por espacios para evitar que se corten o alteren.\n\n"
+					  . "Pregunta: $question";
+
+			// 6. prompt final
+			$promptFinal = [
+				[
+					"type" => "text",
+					"text" => $mainText
+				]
+			];
+
+			if (!empty($promptUrlItems)) {
+				$promptFinal = array_merge($promptFinal, $promptUrlItems);
+			}
+
+			//apis acces open ai
+			$openAiApiKey = getVendorSettings('open_ai_access_key', null, null, $vendorId);
+			$openAiOrgKey = getVendorSettings('open_ai_organization', null, null, $vendorId);
+
+
+
+			//conexionweb
+			$vendor_webhook_endpoint = getVendorSettings('vendor_webhook_endpoint', null, null, $vendorId);
+			$flowise_url = getVendorSettings('flowise_url', null, null, $vendorId);
+
+			// Extraemos el host de la URL usando parse_url() Ej: bluemagic.ec
+			$domain_variable_vendor = parse_url($vendor_webhook_endpoint, PHP_URL_HOST);
+			//vendorUid
+
+
+
+			$vendorAccessToken = getVendorSettings('vendor_api_access_token', null, null, $vendorUid);
+
+
+			// 7. Preparar parámetros para CustomApisService
+			$customApiParams = [
+				  'vendor_id' => $vendorId,
+					'question' => $question,
+					'mensajes_anteriores_contacto'=> $mensajes_anteriores_contacto,
+					'contact_uid' => $contactUid,
+					'top_sections' => $topSections,
+					'combined_sections' => $combinedSections,
+					'api_data_ai' => $api_data_ai,
+					'contact_context' => $contactContext,
+					'prompt_url_items' => $promptUrlItems,
+					'prompt_final' => $promptFinal,
+					// Parámetros de OpenAI
+					'open_ai_access_key'      => $openAiApiKey,
+					'open_ai_organization'=> $openAiOrgKey,
+					// Agrega más parámetros según sea necesario
+				'vendor_webhook_endpoint'=> $vendor_webhook_endpoint,
+				// dominio webhook, vendor acces token y uid vendor
+				'domain_variable_vendor'=> $domain_variable_vendor,
+				'vendor_uid'=> $vendorUid,
+				'vendor_access_token'=> $vendorAccessToken,
+				// Agrega más parámetros según sea necesario
+				'wa_id_contact'=> $wa_id_contact,
+				//configuraciones adicionalesvendor:
+				'requiere_saludo'=> $requiere_saludo,
+				'timezone'=> $timezone,
+				'hora_actual'=> $hora_actual,
+				'botName'=> $botName,
+				'hora_actual'=> $hora_actual,
+				'hora_actual'=> $hora_actual,
+				'prompt'=> $openAIDataPrompt,
+			];
+
+			
+		
+			// 8. Llamar a la función personalizada de CustomApisService
+			// Convertir los parámetros a JSON
+			$jsonParams = json_encode($customApiParams);
+
+			$customApiResponse = $this->customApisService->processVendorApi($jsonParams);
+			//\Log::info(" customApiResponse: " . json_encode($customApiResponse));
+
+			// Obtener los datos de la respuesta personalizada
+			$customApiData = json_decode($customApiResponse->getContent(), true);
+
+			//\Log::info(" customApiData: " . json_encode($customApiData));
+
+			// 9. Integrar $customApiData en $promptFinal
+			if (isset($customApiData['error']) && $customApiData['error']) {
+				// Si hay un error, agregar el mensaje de error al prompt
+				$errorMessage = $customApiData['message'] ?? 'Ocurrió un error con la API personalizada.';
+				/*
+				$promptFinal[] = [
+					"type" => "text",
+					"text" => "Información adicional: {$errorMessage}"
+				];
+				*/
+			} else {
+				// Si no hay error, integrar los datos personalizados
+				$customDataText = "";
+				foreach ($customApiData as $key => $value) {
+					if (!in_array($key, ['error', 'message', 'vendor_id'])) {
+						$customDataText .= "{$key}: {$value}; ";
+					}
+				}
+
+				if (!empty($customDataText)) {
+					$promptFinal[] = [
+						"type" => "text",
+						"text" => $customDataText
+					];
+				}
+			}
+		
+			// 7. Petición a Chat de OpenAI
+			try {
+
+
+
+					$response = OpenAI::chat()->create([
+						'model' => getVendorSettings('open_ai_model_key', null, null, $vendorId),
+						'max_tokens' => getVendorSettings('open_ai_max_token', null, null, $vendorId),
+						'messages' => [
+							[
+								'role' => 'system',
+								'content' => "Eres una persona normal y servicial que genera respuestas claras."
+									. ($botName ? " Tu nombre es $botName." : ""),
+							],
+							[
+								'role' => 'user',
+								// Si tu API no admite arrays, usa 'content' => json_encode($promptFinal)
+								'content' => json_encode($promptFinal)
+							]
+						]
+					]); 
+
+					// Ajusta la forma de extraer la respuesta final
+					return trim($response['choices'][0]['message']['content'] ?? '');
+
+
+			} catch (Exception $e) {
+				\Log::error("Error al generar respuesta con OpenAI: " . $e->getMessage());
+				return "En unos momentos te atenderemos.";
 			}
 		}
-		
-		$vendor = VendorModel::where([
-            '_id' => $vendorId
-        ])->first();
-		
-		$vendorUid = $vendor->_uid;
-		
-		//4.1 Traer datos de Términos y Condiciones y Políticas de Privacidad
-		$terms_and_conditions_vendor = "https://crm.alfabusiness.app/legal/terms-and-conditions/".$vendor->_uid;
-		//$privacy_policy_vendor = "https://crm.alfabusiness.app/legal/privacy-policy/".getVendorUid();
-		
-		
-		//4.2.- cambiar combinacion de secciones por todo el prompt de data
-		$openAITariningData = getVendorSettings('open_ai_embedded_training_data', null, null, $vendorId);
-        $openAIDataPrompt = json_encode($openAITariningData['data']);
-		
-		//$combinedSections = $openAIDataPrompt;
-
-        // 5. Texto principal
-        $mainText = "Basándote en la siguiente información del usuario y el contenido adicional, "
-                  . "responde la pregunta de manera clara, consisa a lo que necesita el contacto en su pregunta, toma en cuenta los mensajes anteriores del contacto en caso que sea necesario, y coloca saltos de línea donde sea necesario. Intenta parecer mas una respuesta humana.\n\n" 
-				  . " $saludo\n\n"
-                  . "Información de contacto: $contactContext\n\n"
-				  . "Mensajes anteriores del contacto: $mensajes_anteriores_contacto\n\n"
-				  . "IMPORTANTE: Procura no repetir información que haz mencionado anteriormente en los mensajes anteriores ya que el usuario ya sabe\n\n"
-                  . "Contenido (varias secciones + APIs): $openAIDataPrompt\n\n"
-                  . "Este es el Prompt URL Items: ".json_encode($promptUrlItems)."\n\n"
-				  . "La Hora y fecha actual es: {$hora_actual} y el día es: {$dia_hoy}"."\n\n"
-				  . "Si te preguntan por los términos y condiciones o políticas de Privacidad di que en este URL van a poder encontrar toda la información: {$terms_and_conditions_vendor}"."\n\n"
-				  . "ABSOLUTAMENTE IMPORTANTE: En tu respuesta, NO UTILICES paréntesis, asteriscos ni corchetes al incluir enlaces. "
-                  . "Asegúrate de que los enlaces se presenten separados por espacios para evitar que se corten o alteren.\n\n"
-                  . "Pregunta: $question";
-
-        // 6. prompt final
-        $promptFinal = [
-            [
-                "type" => "text",
-                "text" => $mainText
-            ]
-        ];
-
-        if (!empty($promptUrlItems)) {
-            $promptFinal = array_merge($promptFinal, $promptUrlItems);
-        }
-		
-		//apis acces open ai
-		$openAiApiKey = getVendorSettings('open_ai_access_key', null, null, $vendorId);
-    	$openAiOrgKey = getVendorSettings('open_ai_organization', null, null, $vendorId);
-		
-		//conexionweb
-		$vendor_webhook_endpoint = getVendorSettings('vendor_webhook_endpoint', null, null, $vendorId);
-		
-		// Extraemos el host de la URL usando parse_url() Ej: bluemagic.ec
-		$domain_variable_vendor = parse_url($vendor_webhook_endpoint, PHP_URL_HOST);
-		//vendorUid
-		
-		
-		
-		$vendorAccessToken = getVendorSettings('vendor_api_access_token', null, null, $vendorUid);
-		
-		
-		// 7. Preparar parámetros para CustomApisService
-        $customApiParams = [
-            'vendor_id' => $vendorId,
-            'question' => $question,
-			'mensajes_anteriores_contacto'=> $mensajes_anteriores_contacto,
-            'contact_uid' => $contactUid,
-            'top_sections' => $topSections,
-            'combined_sections' => $combinedSections,
-            'api_data_ai' => $api_data_ai,
-            'contact_context' => $contactContext,
-            'prompt_url_items' => $promptUrlItems,
-            'prompt_final' => $promptFinal,
-			// Parámetros de OpenAI
-			'open_ai_access_key'      => $openAiApiKey,
-			'open_ai_organization'=> $openAiOrgKey,
-			'vendor_webhook_endpoint'=> $vendor_webhook_endpoint,
-			// dominio webhook, vendor acces token y uid vendor
-			'domain_variable_vendor'=> $domain_variable_vendor,
-			'vendor_uid'=> $vendorUid,
-			'vendor_access_token'=> $vendorAccessToken,
-            // Agrega más parámetros según sea necesario
-			'wa_id_contact'=> $wa_id_contact,
-        ];
-		
-		
-
-        // Convertir los parámetros a JSON
-        $jsonParams = json_encode($customApiParams);
-
-        // 8. Llamar a la función personalizada de CustomApisService
-        $customApiResponse = $this->customApisService->processVendorApi($jsonParams);
-		
-		
-
-        // Obtener los datos de la respuesta personalizada
-        $customApiData = json_decode($customApiResponse->getContent(), true);
-
-        // 9. Integrar $customApiData en $promptFinal
-        if (isset($customApiData['error']) && $customApiData['error']) {
-            // Si hay un error, agregar el mensaje de error al prompt
-            $errorMessage = $customApiData['message'] ?? 'Ocurrió un error con la API personalizada.';
-            /*
-			$promptFinal[] = [
-                "type" => "text",
-                "text" => "Información adicional: {$errorMessage}"
-            ];
-			*/
-        } else {
-            // Si no hay error, integrar los datos personalizados
-            // Dependiendo de la estructura, puedes agregar campos específicos
-            // Aquí, por ejemplo, concatenar todos los valores en un texto
-            $customDataText = "";
-            foreach ($customApiData as $key => $value) {
-                if (!in_array($key, ['error', 'message', 'vendor_id'])) {
-                    $customDataText .= "{$key}: {$value}; ";
-                }
-            }
-
-            // Agregar el texto personalizado al prompt
-            if (!empty($customDataText)) {
-                $promptFinal[] = [
-                    "type" => "text",
-                    "text" => $customDataText
-                ];
-            }
-        }
-		
-		
-		
-		
-
-        // 7. Petición a Chat de OpenAI
-        try {
-            $response = OpenAI::chat()->create([
-                'model' => getVendorSettings('open_ai_model_key', null, null, $vendorId),
-                'max_tokens' => getVendorSettings('open_ai_max_token', null, null, $vendorId),
-                'messages' => [
-                    [
-                        'role' => 'system',
-                        'content' => "Eres una persona normal y servicial que genera respuestas claras."
-                            . ($botName ? " Tu nombre es $botName." : ""),
-                    ],
-                    [
-                        'role' => 'user',
-                        // Si tu API no admite arrays, usa 'content' => json_encode($promptFinal)
-                        'content' => $promptFinal
-                    ]
-                ]
-            ]);
-			
-			
-
-            // Ajusta la forma de extraer la respuesta final
-            return trim($response['choices'][0]['message']['content'] ?? '');
-
-        } catch (Exception $e) {
-            \Log::error("Error al generar respuesta con OpenAI: " . $e->getMessage());
-            return "Lo siento, no pude procesar tu solicitud en este momento. Por favor, intenta de nuevo más tarde.";
-        }
-    }
+	
+	
 }

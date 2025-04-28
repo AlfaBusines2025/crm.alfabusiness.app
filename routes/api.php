@@ -63,6 +63,12 @@ Route::group([
         'apiProcessContactUpdate',
     ])->name('api.vendor.contact.update.process');
 	
+	// Send Image Generation Message FUNCION CREADA
+    Route::post('/contact/send-image-generation', [
+        WhatsAppServiceController::class,
+        'apiSendImageGeneration',
+    ])->name('api.vendor.image_generation.send.process');
+	
 	/*
 	// Ruta para obtener settings dinámicos
 	Route::get('/vendor-settings-automate', [

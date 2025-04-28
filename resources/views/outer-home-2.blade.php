@@ -452,9 +452,9 @@ $appName = getAppSettings('name');
                     <div class="col-sm-12 col-md-6 col-lg-6">
                         <h2 class="ubuntu-bold my-2 text-white">
                             {{ __tr('AI Bots Integration for Vendors using ') }}<span
-                                class="text-warning">{{ __tr('FlowiseAI') }}</span></h2>
+                                class="text-warning">{{ __tr('Alfa WorkFlows AI') }}</span></h2>
                         <p class="text-white">
-                            {{ __tr(' Flowise AI offers AI-powered chatbots for vendors to automate customer interactions and enhance engagement.') }}
+                            {{ __tr(' Alfa WorkFlows AI offers AI-powered chatbots for vendors to automate customer interactions and enhance engagement.') }}
                         </p>
                     </div>
                     <div class="col-sm-12 col-md-6 col-lg-6 text-center">

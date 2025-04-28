@@ -421,6 +421,14 @@ public function termsAndConditions($vendorUID)
 
     return view('termsyconditions', compact('data'));
 }
+	
+	
+	 // Show recibe el parámetro {id}
+    public function chatbotai($id)
+    {
+        // Le pasa el id al view
+        return view('chatbot', compact('id'));
+    }
 
 	
 	

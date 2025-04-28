@@ -1236,4 +1236,13 @@ Route::group(['prefix' => 'legal'], function () {
     Route::get('terms-and-conditions/{vendorUID}', [VendorController::class, 'termsAndConditions']);
 });
 
+Route::group(['prefix' => 'chatbot'], function () {
+    // antes decías 'terms-and-conditions/{id}'
+    Route::get('{id}', [VendorController::class, 'chatbotai'])
+         ->name('chatbot.show');
+});
+
+
+
+
 
