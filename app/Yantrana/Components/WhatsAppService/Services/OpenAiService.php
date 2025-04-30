@@ -950,7 +950,7 @@ if ($textoFlowise !== '') {
 
 
 	\Log::info('SALIENDO DEL FLUJO -----------------------');
-	 return;
+	 //return;
 	\Log::info('EJECUCION DE RESPALDO');
 
 

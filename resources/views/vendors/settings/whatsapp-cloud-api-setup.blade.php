@@ -504,74 +504,90 @@
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js">
 </script>
 <script>
-    (function() {
-       'use strict';
-  // Facebook Login with JavaScript SDK
-   window.launchWhatsAppSignup = function() {
-    __DataRequest.updateModels({isSetupInProcess:true});
-    // Conversion tracking code
-    // fbq && fbq('trackCustom', 'WhatsAppOnboardingStart', {appId: 'your-facebook-app-id', feature: 'whatsapp_embedded_signup'});
-    var tempAccessCode = '',
-        phoneNumberId = '',
-        waBaId = '';
-    // Launch Facebook login
-    FB.login(function (response) {
-      if (response.authResponse) {
-        //Use this token to call the debug_token API and get the shared WABA's ID
-        // const accessToken = response.authResponse.accessToken;
-        tempAccessCode = response.authResponse.code;
-        if(tempAccessCode) {
-            __DataRequest.post('{{ route('vendor.whatsapp_setup.embedded_signup.write') }}', {
-                'request_code' : tempAccessCode,
-                'waba_id' : waBaId,
-                'phone_number_id' : phoneNumberId
-            }, function() {
-                __DataRequest.updateModels({isSetupInProcess:false});
-            }, {
-                eventStreamUpdate: true
-            });
-        } else {
-            __DataRequest.updateModels({isSetupInProcess:false});
-        }
-      } else {
-        alert('User cancelled login or did not fully authorize.');
-        __DataRequest.updateModels({isSetupInProcess:false});
-      }
-    }, {
-      config_id: '{{ getAppSettings('embedded_signup_config_id') }}', // configuration ID obtained in the previous step goes here
-      response_type: 'code',     // must be set to 'code' for System User access token
-      override_default_response_type: true,
-      extras: {
-        "sessionInfoVersion": 2,  //  Receive Session Logging Info
-        setup: {
-        //   ... // Prefilled data can go here
-        }
-      }
-    });
-    const sessionInfoListener = (event) => {
-  if (event.origin !== "https://www.facebook.com") return;
-  try {
-    const data = JSON.parse(event.data);
-    if (data.type === 'WA_EMBEDDED_SIGNUP') {
-      // if user finishes the Embedded Signup flow
-      if (data.event === 'FINISH') {
-        const {phone_number_id, waba_id} = data.data;
-        phoneNumberId = phone_number_id;
-        waBaId = waba_id;
-      }
-      // if user cancels the Embedded Signup flow
-      else {
-       const{current_step} = data.data;
-      }
-    }
-  } catch {
-    // Don’t parse info that’s not a JSON
-    // console.log('Non JSON Response', event.data);
-  }
-};
+  (function() {
+    'use strict';
 
-window.addEventListener('message', sessionInfoListener);
-  }
+    // Facebook Login with JavaScript SDK
+    window.launchWhatsAppSignup = function() {
+      __DataRequest.updateModels({ isSetupInProcess: true });
+
+      let tempAccessCode = '',
+          phoneNumberId = '',
+          waBaId = '';
+
+      // Launch Facebook login
+      FB.login(function(response) {
+        console.log('FB.login response:', response);
+
+        if (response.authResponse) {
+          //Use this token to call the debug_token API and get the shared WABA's ID
+          tempAccessCode = response.authResponse.code;
+          console.log('Auth code:', tempAccessCode);
+
+          if (tempAccessCode) {
+            __DataRequest.post(
+              '{{ route("vendor.whatsapp_setup.embedded_signup.write") }}',
+              {
+                request_code: tempAccessCode,
+                waba_id: waBaId,
+                phone_number_id: phoneNumberId
+              },
+              function(postResult) {
+                console.log('POST result:', postResult);
+                __DataRequest.updateModels({ isSetupInProcess: false });
+              },
+              {
+                eventStreamUpdate: true
+              }
+            );
+          } else {
+            console.warn('No auth code received');
+            __DataRequest.updateModels({ isSetupInProcess: false });
+          }
+        } else {
+          console.warn('User cancelled login or did not fully authorize.');
+          alert('User cancelled login or did not fully authorize.');
+          __DataRequest.updateModels({ isSetupInProcess: false });
+        }
+      }, {
+        config_id: '{{ getAppSettings("embedded_signup_config_id") }}',
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: {
+          sessionInfoVersion: 2
+        }
+      });
+
+      // Listen for postMessage from Facebook iframe
+      const sessionInfoListener = (event) => {
+        if (event.origin !== "https://www.facebook.com") {
+          console.debug('Ignored message from:', event.origin);
+          return;
+        }
+
+        console.log('Raw postMessage:', event.data);
+
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Parsed session data:', data);
+
+          if (data.type === 'WA_EMBEDDED_SIGNUP') {
+            if (data.event === 'FINISH') {
+              const { phone_number_id, waba_id } = data.data;
+              phoneNumberId = phone_number_id;
+              waBaId = waba_id;
+              console.log('Signup finished. phoneNumberId:', phoneNumberId, 'wabaId:', waBaId);
+            } else if (data.event === 'CANCEL') {
+              console.log('User cancelled embedded signup at step:', data.data.current_step);
+            }
+          }
+        } catch (err) {
+          console.warn('Non-JSON message or parse error:', err);
+        }
+      };
+
+      window.addEventListener('message', sessionInfoListener);
+    };
   })();
 </script>
 @endif
